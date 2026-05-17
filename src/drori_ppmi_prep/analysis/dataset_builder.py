@@ -182,6 +182,15 @@ def build_analysis_dataset_from_metadata(
 
     def safe_symlink(src: Path, dst: Path, overwrite_link: bool = False) -> None:
         if dst.exists() or dst.is_symlink():
+            if dst.is_symlink():
+                current_target = dst.resolve()
+                expected_target = src.resolve()
+                if current_target == expected_target:
+                    return
+                dst.unlink()
+                os.symlink(src, dst)
+                return
+
             if not overwrite_link:
                 return
             dst.unlink()
