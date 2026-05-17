@@ -1,7 +1,18 @@
 import shutil
+import shlex
 import subprocess
 import tempfile
 from pathlib import Path
+
+
+def remove_dbsegment_logs(output_dir):
+    for log_file in [
+        output_dir / "dbsegment_command.txt",
+        output_dir / "dbsegment_stdout.log",
+        output_dir / "dbsegment_stderr.log",
+    ]:
+        if log_file.exists():
+            log_file.unlink()
 
 
 def run_dbsegment(
@@ -23,6 +34,9 @@ def run_dbsegment(
         return output_file, "skipped"
 
     output_dir.mkdir(parents=True, exist_ok=True)
+    command_log = output_dir / "dbsegment_command.txt"
+    stdout_log = output_dir / "dbsegment_stdout.log"
+    stderr_log = output_dir / "dbsegment_stderr.log"
 
     with tempfile.TemporaryDirectory(prefix="dbsegment_") as tmpdir:
         tmpdir = Path(tmpdir)
@@ -41,17 +55,25 @@ def run_dbsegment(
         if model_path is not None:
             cmd.extend(["-mp", str(Path(model_path))])
 
-        result = subprocess.run(
-            cmd,
-            text=True,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.PIPE,
-        )
+        command_log.write_text(shlex.join(cmd) + "\n")
+
+        with stdout_log.open("w") as stdout_f, stderr_log.open("w") as stderr_f:
+            try:
+                result = subprocess.run(
+                    cmd,
+                    text=True,
+                    stdout=stdout_f,
+                    stderr=stderr_f,
+                )
+            except Exception as e:
+                stderr_f.write(f"{type(e).__name__}: {e}\n")
+                return None, "failed"
+
+        if output_file.exists():
+            remove_dbsegment_logs(output_dir)
+            return output_file, "done"
 
         if result.returncode != 0:
             return None, "failed"
-
-        if output_file.exists():
-            return output_file, "done"
 
     return output_file, "failed"
