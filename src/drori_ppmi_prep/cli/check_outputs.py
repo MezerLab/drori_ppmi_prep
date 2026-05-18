@@ -380,6 +380,22 @@ def write_csv(rows, output_csv):
         writer.writerows(rows)
 
 
+def print_summary(analysis_root, rows, summary):
+    print(f"Analysis root : {analysis_root}")
+    print(f"Total sessions: {len(rows)}")
+    print()
+    print("Check                          Applicable  Done  Missing  Not applicable")
+    print("-" * 74)
+    for item in summary:
+        print(
+            f"{item['check']:<30}"
+            f"{item['applicable']:>11}"
+            f"{item['done']:>6}"
+            f"{item['missing']:>9}"
+            f"{item['not_applicable']:>16}"
+        )
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Check completeness of PPMI analysis-session outputs."
@@ -410,19 +426,7 @@ def main():
     rows = check_analysis_outputs(analysis_root, native_source_availability)
     summary = summarize(rows)
 
-    print(f"Analysis root : {analysis_root}")
-    print(f"Total sessions: {len(rows)}")
-    print()
-    print("Check                          Applicable  Done  Missing  Not applicable")
-    print("-" * 74)
-    for item in summary:
-        print(
-            f"{item['check']:<30}"
-            f"{item['applicable']:>11}"
-            f"{item['done']:>6}"
-            f"{item['missing']:>9}"
-            f"{item['not_applicable']:>16}"
-        )
+    print_summary(analysis_root, rows, summary)
 
     if args.csv is not None and rows:
         write_csv(rows, args.csv)

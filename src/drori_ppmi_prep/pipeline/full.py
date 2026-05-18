@@ -6,6 +6,12 @@ from pathlib import Path
 import contextlib
 import os
 
+from drori_ppmi_prep.cli.check_outputs import (
+    build_native_source_availability,
+    check_analysis_outputs,
+    print_summary,
+    summarize,
+)
 from drori_ppmi_prep.pipeline.infrastructure import run_build_infrastructure
 from drori_ppmi_prep.pipeline.session import run_session_pipeline
 
@@ -230,6 +236,18 @@ def main():
     print("=" * 70)
     print(f"Output root       : {output_root}")
     print(f"Processed sessions: {processed_sessions}")
+    print()
+
+    print("-" * 70)
+    print("Checking analysis outputs...")
+    print("-" * 70)
+    native_source_availability = build_native_source_availability(
+        config["metadata_csv"],
+        config["nifti_root"],
+    )
+    rows = check_analysis_outputs(analysis_root, native_source_availability)
+    summary = summarize(rows)
+    print_summary(analysis_root, rows, summary)
     print()
 
 
