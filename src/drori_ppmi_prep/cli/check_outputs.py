@@ -3,6 +3,8 @@ import csv
 import json
 from pathlib import Path
 
+import pandas as pd
+
 
 def resolve_analysis_root(path):
     path = Path(path)
@@ -17,6 +19,36 @@ def resolve_analysis_root(path):
         return analysis_root
 
     return path
+
+
+def resolve_dataset_paths(path):
+    path = Path(path)
+
+    config_path = path / "ppmi_config.json"
+    if not config_path.exists() and path.name == "PPMI_analysis":
+        config_path = path.parent / "ppmi_config.json"
+
+    if config_path.exists():
+        config = json.loads(config_path.read_text())
+        return {
+            "analysis_root": Path(config["analysis_root"]),
+            "metadata_csv": Path(config["metadata_csv"]),
+            "nifti_root": Path(config["nifti_root"]),
+        }
+
+    analysis_root = path / "PPMI_analysis"
+    if analysis_root.exists():
+        return {
+            "analysis_root": analysis_root,
+            "metadata_csv": path / "ppmi_metadata.csv",
+            "nifti_root": path / "PPMI_nifti",
+        }
+
+    return {
+        "analysis_root": path,
+        "metadata_csv": None,
+        "nifti_root": None,
+    }
 
 
 def iter_session_dirs(analysis_root):
@@ -46,10 +78,148 @@ def status(applicable, complete):
     return "missing_output"
 
 
-def build_checks(session_dir):
+def is_gzip_file(path):
+    try:
+        with open(path, "rb") as f:
+            return f.read(2) == b"\x1f\x8b"
+    except OSError:
+        return False
+
+
+def build_native_source_availability(metadata_csv, nifti_root):
+    if metadata_csv is None or nifti_root is None:
+        return {}
+
+    metadata_csv = Path(metadata_csv)
+    nifti_root = Path(nifti_root)
+
+    if not metadata_csv.exists() or not nifti_root.exists():
+        return {}
+
+    df = pd.read_csv(metadata_csv)
+    irrelevant_scans_ordered = ["GRAPPA_ND", "GRAPPA 2", "GRAPPA2", "TSE_AC_PC line"]
+    nifti_index = {}
+
+    for path in nifti_root.glob("*/*/*/*.nii.gz"):
+        session_dir = path.parent
+        sequence_dir = session_dir.parent
+        subject_dir = sequence_dir.parent
+        nifti_index[(subject_dir.name, session_dir.name, path.name)] = path
+
+    def is_missing_value(value):
+        if pd.isna(value):
+            return True
+        value = str(value).strip()
+        return value == "" or value == "0" or value.lower() == "nan"
+
+    def normalize_numeric_id(value):
+        if is_missing_value(value):
+            return None
+        value = str(value).strip()
+        try:
+            numeric_value = float(value)
+            if numeric_value.is_integer():
+                return str(int(numeric_value))
+        except Exception:
+            pass
+        return value
+
+    def get_weighting_columns(weighting):
+        cols = []
+        if weighting in df.columns:
+            desc_col = f"{weighting}_Description" if f"{weighting}_Description" in df.columns else None
+            cols.append((weighting, desc_col))
+
+        index = 1
+        while f"{weighting}_{index}" in df.columns:
+            image_col = f"{weighting}_{index}"
+            desc_col = f"{weighting}_{index}_Description" if f"{weighting}_{index}_Description" in df.columns else None
+            cols.append((image_col, desc_col))
+            index += 1
+
+        return cols
+
+    def description_penalty(description):
+        description = description.upper()
+        for index, marker in enumerate(irrelevant_scans_ordered):
+            if marker.upper() in description:
+                return (1, index)
+        return (0, -1)
+
+    def choose_best_image(row, weighting):
+        candidates = []
+
+        for image_col, desc_col in get_weighting_columns(weighting):
+            image_id = normalize_numeric_id(row.get(image_col))
+            if image_id is None:
+                continue
+
+            description = ""
+            if desc_col is not None and desc_col in row.index and pd.notna(row[desc_col]):
+                description = str(row[desc_col])
+
+            candidates.append((description_penalty(description), image_id))
+
+        if not candidates:
+            return None
+
+        candidates.sort(key=lambda item: item[0])
+        return candidates[0][1]
+
+    def find_nifti_for_image(subject_id, session_id, image_id):
+        if image_id is None:
+            return None
+
+        subject_id = normalize_numeric_id(subject_id)
+        session_id = str(session_id).strip()
+        if subject_id is None or not session_id:
+            return None
+
+        subject_dir = nifti_root / subject_id
+        if not subject_dir.exists():
+            return None
+
+        filenames = [
+            f"I{image_id}.nii.gz",
+            f"{image_id}.nii.gz",
+            f"I{image_id}_e1.nii.gz",
+            f"{image_id}_e1.nii.gz",
+            f"I{image_id}_e2.nii.gz",
+            f"{image_id}_e2.nii.gz",
+        ]
+
+        for filename in filenames:
+            path = nifti_index.get((subject_id, session_id, filename))
+            if path is not None and is_gzip_file(path):
+                return path
+
+        return None
+
+    availability = {}
+
+    for _, row in df.iterrows():
+        subject_id = normalize_numeric_id(row.get("SubjectID"))
+        session_id = str(row.get("SessionID")).strip() if pd.notna(row.get("SessionID")) else ""
+        if subject_id is None or not session_id:
+            continue
+
+        availability[(subject_id, session_id)] = {
+            weighting: find_nifti_for_image(
+                subject_id,
+                session_id,
+                choose_best_image(row, weighting),
+            ) is not None
+            for weighting in ["T1", "T2", "PD"]
+        }
+
+    return availability
+
+
+def build_checks(session_dir, native_sources=None):
     native_t1 = Path("T1.nii.gz")
     native_t2 = Path("T2.nii.gz")
     native_pd = Path("PD.nii.gz")
+    native_sources = native_sources or {}
 
     native_synthstrip = {
         image: [
@@ -70,9 +240,13 @@ def build_checks(session_dir):
 
     checks = {}
 
-    checks["native_T1_link"] = status(True, (session_dir / native_t1).exists())
-    checks["native_T2_link"] = status(True, (session_dir / native_t2).exists())
-    checks["native_PD_link"] = status(True, (session_dir / native_pd).exists())
+    native_t1_applicable = native_sources.get("T1", (session_dir / native_t1).exists())
+    native_t2_applicable = native_sources.get("T2", (session_dir / native_t2).exists())
+    native_pd_applicable = native_sources.get("PD", (session_dir / native_pd).exists())
+
+    checks["native_T1_link"] = status(native_t1_applicable, (session_dir / native_t1).exists())
+    checks["native_T2_link"] = status(native_t2_applicable, (session_dir / native_t2).exists())
+    checks["native_PD_link"] = status(native_pd_applicable, (session_dir / native_pd).exists())
 
     checks["native_synthstrip_T1"] = status(
         (session_dir / native_t1).exists(),
@@ -144,8 +318,9 @@ def build_checks(session_dir):
     return checks
 
 
-def check_analysis_outputs(analysis_root):
+def check_analysis_outputs(analysis_root, native_source_availability=None):
     analysis_root = Path(analysis_root)
+    native_source_availability = native_source_availability or {}
 
     if not analysis_root.exists():
         raise FileNotFoundError(f"Analysis root not found: {analysis_root}")
@@ -158,7 +333,10 @@ def check_analysis_outputs(analysis_root):
             "session_id": session_id,
             "session_dir": str(session_dir),
         }
-        row.update(build_checks(session_dir))
+        row.update(build_checks(
+            session_dir,
+            native_source_availability.get((subject_id, session_id)),
+        ))
         rows.append(row)
 
     return rows
@@ -223,8 +401,13 @@ def main():
 
     args = parser.parse_args()
 
-    analysis_root = resolve_analysis_root(args.path)
-    rows = check_analysis_outputs(analysis_root)
+    dataset_paths = resolve_dataset_paths(args.path)
+    analysis_root = dataset_paths["analysis_root"]
+    native_source_availability = build_native_source_availability(
+        dataset_paths["metadata_csv"],
+        dataset_paths["nifti_root"],
+    )
+    rows = check_analysis_outputs(analysis_root, native_source_availability)
     summary = summarize(rows)
 
     print(f"Analysis root : {analysis_root}")
