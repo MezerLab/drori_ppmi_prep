@@ -25,7 +25,11 @@ def run_synthstrip(
             f"{synthstrip_cmd} not found on PATH. Install SynthStrip first."
         )
 
-    if output_nii.exists() and not overwrite:
+    expected_outputs = [output_nii]
+    if mask_nii is not None:
+        expected_outputs.append(mask_nii)
+
+    if all(path.exists() for path in expected_outputs) and not overwrite:
         return
 
     output_nii.parent.mkdir(parents=True, exist_ok=True)

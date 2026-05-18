@@ -87,20 +87,27 @@ def build_checks(session_dir):
         all_exist(session_dir, native_synthstrip["PD"]),
     )
 
+    t1_registration_applicable = (
+        (session_dir / native_t1).exists()
+        and (session_dir / native_pd).exists()
+        and (session_dir / native_synthstrip["T1"][0]).exists()
+        and (session_dir / native_synthstrip["PD"][0]).exists()
+    )
+
     checks["t1_space_T1"] = status(
         (session_dir / native_t1).exists(),
         (session_dir / "t1_space/T1.nii.gz").exists(),
     )
     checks["t1_space_PD"] = status(
-        (session_dir / native_pd).exists(),
+        t1_registration_applicable,
         (session_dir / "t1_space/PD.nii.gz").exists(),
     )
     checks["t1_space_T2"] = status(
-        (session_dir / native_t2).exists(),
+        t1_registration_applicable and (session_dir / native_t2).exists(),
         (session_dir / "t1_space/T2.nii.gz").exists(),
     )
     checks["t1_space_transform"] = status(
-        (session_dir / native_pd).exists(),
+        t1_registration_applicable,
         (session_dir / "t1_space/flirt9dof_PD_to_T1.mat").exists(),
     )
     checks["t1_space_synthstrip"] = status(

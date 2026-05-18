@@ -97,7 +97,7 @@ def run_session_pipeline(
     link_t1_synthstrip_files_to_t1_space(session_dir)
     step += 1
 
-    print(f"  ({step}/{total_steps}): Registering PD/T2 to T1 space ({flirt_cmd})... ", end="", flush=True)
+    print(f"  ({step}/{total_steps}): Preparing T1 space / registering PD/T2 ({flirt_cmd})... ", end="", flush=True)
     _, status = register_session_to_t1_space(
         session_dir=session_dir,
         overwrite=force,

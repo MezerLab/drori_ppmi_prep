@@ -26,18 +26,32 @@ def register_session_to_t1_space(
 
     if not t1_native.exists():
         return None, "missing"
-    if not pd_native.exists():
-        return None, "missing"
-    if not t1_brain.exists():
-        return None, "missing"
-    if not pd_brain.exists():
-        return None, "missing"
 
     out_dir = session_dir / "t1_space"
     out_dir.mkdir(parents=True, exist_ok=True)
 
+    t1_link = out_dir / "T1.nii.gz"
+    t1_was_missing = not t1_link.exists()
+
+    if overwrite and (t1_link.exists() or t1_link.is_symlink()):
+        t1_link.unlink()
+        t1_was_missing = True
+    elif t1_link.is_symlink() and not t1_link.exists():
+        t1_link.unlink()
+        t1_was_missing = True
+
+    if not t1_link.exists():
+        t1_link.symlink_to(t1_native.resolve())
+
+    if not pd_native.exists():
+        return out_dir, "done" if t1_was_missing else "skipped"
+    if not t1_brain.exists():
+        return out_dir, "done" if t1_was_missing else "missing"
+    if not pd_brain.exists():
+        return out_dir, "done" if t1_was_missing else "missing"
+
     expected_outputs = [
-        out_dir / "T1.nii.gz",
+        t1_link,
         out_dir / "PD.nii.gz",
         out_dir / "flirt9dof_PD_to_T1.mat",
     ]
@@ -46,14 +60,6 @@ def register_session_to_t1_space(
 
     if all(path.exists() for path in expected_outputs) and not overwrite:
         return out_dir, "skipped"
-
-    t1_link = out_dir / "T1.nii.gz"
-
-    if overwrite and (t1_link.exists() or t1_link.is_symlink()):
-        t1_link.unlink()
-
-    if not t1_link.exists():
-        t1_link.symlink_to(t1_native.resolve())
 
     apply_jobs = [
         (pd_native, out_dir / "PD.nii.gz"),
