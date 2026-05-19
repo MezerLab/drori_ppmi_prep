@@ -160,7 +160,7 @@ def run_session_pipeline(
         subjects_dir = output_root / "group_analysis" / "FreeSurfer"
         freesurfer_subject_id = f"{subject_id}_{session_id}"
 
-        freesurfer_subject_dir = run_freesurfer(
+        freesurfer_subject_dir, freesurfer_status = run_freesurfer(
             input_image=reference_t1,
             subjects_dir=subjects_dir,
             subject_id=freesurfer_subject_id,
@@ -168,18 +168,26 @@ def run_session_pipeline(
             overwrite=force,
         )
 
-        freesurfer_mri_link = link_freesurfer_to_session(
-            freesurfer_subject_dir=freesurfer_subject_dir,
-            session_dir=session_dir,
-        )
+        status = freesurfer_status
 
-        export_all_freesurfer_mgz_to_orig_space(
-            freesurfer_mri_dir=freesurfer_mri_link,
-            reference_t1=reference_t1,
-            output_dir=freesurfer_mri_link / "t1_space_outputs",
-            mri_vol2vol_cmd=mri_vol2vol_cmd,
-            overwrite=force,
-        )
+        if freesurfer_subject_dir is not None:
+            freesurfer_mri_link = link_freesurfer_to_session(
+                freesurfer_subject_dir=freesurfer_subject_dir,
+                session_dir=session_dir,
+            )
+
+            if freesurfer_mri_link is not None:
+                _, export_status = export_all_freesurfer_mgz_to_orig_space(
+                    freesurfer_mri_dir=freesurfer_mri_link,
+                    reference_t1=reference_t1,
+                    output_dir=freesurfer_mri_link / "t1_space_outputs",
+                    mri_vol2vol_cmd=mri_vol2vol_cmd,
+                    overwrite=force,
+                )
+                if export_status in {"failed", "missing_command"}:
+                    status = export_status
+
+        print_done_or_skipped(status)
 
         step += 1
 

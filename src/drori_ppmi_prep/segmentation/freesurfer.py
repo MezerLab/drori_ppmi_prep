@@ -18,13 +18,16 @@ def run_freesurfer(
     subject_dir = subjects_dir / subject_id
 
     if not input_image.exists():
-        raise FileNotFoundError(f"Input image not found: {input_image}")
+        return None, "missing"
 
-    if shutil.which(recon_all_cmd) is None:
-        raise FileNotFoundError(f"{recon_all_cmd} not found on PATH.")
+    if subject_dir.exists() and (subject_dir / "mri").exists() and not overwrite:
+        return subject_dir, "skipped"
 
     if subject_dir.exists() and not overwrite:
-        return subject_dir
+        return None, "failed"
+
+    if shutil.which(recon_all_cmd) is None:
+        return None, "missing_command"
 
     if subject_dir.exists() and overwrite:
         shutil.rmtree(subject_dir)
@@ -39,9 +42,20 @@ def run_freesurfer(
         "-all",
     ]
 
-    subprocess.run(cmd, text=True, stdout=subprocess.DEVNULL)
+    result = subprocess.run(
+        cmd,
+        text=True,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
 
-    return subject_dir
+    if result.returncode != 0:
+        return None, "failed"
+
+    if not (subject_dir / "mri").exists():
+        return None, "failed"
+
+    return subject_dir, "done"
 
 
 def link_freesurfer_to_session(
@@ -72,15 +86,21 @@ def export_all_freesurfer_mgz_to_orig_space(
     mri_vol2vol_cmd="mri_vol2vol",
     overwrite=False,
 ):
+    if freesurfer_mri_dir is None:
+        return [], "missing"
+
     freesurfer_mri_dir = Path(freesurfer_mri_dir)
     reference_t1 = Path(reference_t1)
     output_dir = Path(output_dir)
 
     if not freesurfer_mri_dir.exists():
-        return []
+        return [], "missing"
 
     if not reference_t1.exists():
-        return []
+        return [], "missing"
+
+    if shutil.which(mri_vol2vol_cmd) is None:
+        return [], "missing_command"
 
     output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -112,10 +132,20 @@ def export_all_freesurfer_mgz_to_orig_space(
         else:
             cmd.extend(["--interp", "trilinear"])
 
-        subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL)
+        result = subprocess.run(
+            cmd,
+            text=True,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        if result.returncode != 0:
+            return exported, "failed"
         exported.append(output_file)
 
-    return exported
+    if exported:
+        return exported, "done"
+
+    return exported, "missing"
 
 
 def is_integer_label_volume(image_path, max_unique_labels=5000):

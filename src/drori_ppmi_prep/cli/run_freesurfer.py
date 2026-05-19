@@ -44,7 +44,7 @@ def run_freesurfer_segmentations(
 
             print(f"Running FreeSurfer for session: {session_dir}")
 
-            freesurfer_subject_dir = run_freesurfer(
+            freesurfer_subject_dir, status = run_freesurfer(
                 input_image=reference_t1,
                 subjects_dir=subjects_dir,
                 subject_id=freesurfer_subject_id,
@@ -52,19 +52,26 @@ def run_freesurfer_segmentations(
                 overwrite=overwrite,
             )
 
+            if status in {"missing", "missing_command", "failed"}:
+                skipped_sessions += 1
+                continue
+
             freesurfer_mri_link = link_freesurfer_to_session(
                 freesurfer_subject_dir=freesurfer_subject_dir,
                 session_dir=session_dir,
             )
 
             if freesurfer_mri_link is not None:
-                export_all_freesurfer_mgz_to_orig_space(
+                _, export_status = export_all_freesurfer_mgz_to_orig_space(
                     freesurfer_mri_dir=freesurfer_mri_link,
                     reference_t1=reference_t1,
                     output_dir=freesurfer_mri_link / "t1_space_outputs",
                     mri_vol2vol_cmd=mri_vol2vol_cmd,
                     overwrite=overwrite,
                 )
+                if export_status in {"missing_command", "failed"}:
+                    skipped_sessions += 1
+                    continue
 
             processed_sessions += 1
 

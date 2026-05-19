@@ -34,23 +34,28 @@ def run_native_synthstrip(
     if all(path.exists() for path in expected_outputs) and not overwrite:
         return synthstrip_dir, "skipped"
 
-    run_synthstrip(
-        input_nii=input_nii,
-        output_nii=output_nii,
-        mask_nii=output_mask,
-        overwrite=overwrite,
-        no_csf=False,
-        synthstrip_cmd=synthstrip_cmd,
-    )
+    try:
+        run_synthstrip(
+            input_nii=input_nii,
+            output_nii=output_nii,
+            mask_nii=output_mask,
+            overwrite=overwrite,
+            no_csf=False,
+            synthstrip_cmd=synthstrip_cmd,
+        )
 
-    run_synthstrip(
-        input_nii=input_nii,
-        output_nii=output_nii_nocsf,
-        mask_nii=output_mask_nocsf,
-        overwrite=overwrite,
-        no_csf=True,
-        synthstrip_cmd=synthstrip_cmd,
-    )
+        run_synthstrip(
+            input_nii=input_nii,
+            output_nii=output_nii_nocsf,
+            mask_nii=output_mask_nocsf,
+            overwrite=overwrite,
+            no_csf=True,
+            synthstrip_cmd=synthstrip_cmd,
+        )
+    except FileNotFoundError:
+        return None, "missing_command"
+    except RuntimeError:
+        return None, "failed"
 
     if all(path.exists() for path in expected_outputs):
         return synthstrip_dir, "done"

@@ -35,6 +35,9 @@ def run_dbsegment(
     if output_file.exists() and not overwrite:
         return output_file, "skipped"
 
+    if shutil.which(dbsegment_cmd) is None:
+        return None, "missing_command"
+
     output_dir.mkdir(parents=True, exist_ok=True)
     command_log = output_dir / "dbsegment_command.txt"
     stdout_log = output_dir / "dbsegment_stdout.log"
