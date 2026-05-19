@@ -11,7 +11,7 @@ def validate_output_root_path(output_root) -> Path:
         raise ValueError(
             "output_root contains leading or trailing whitespace. "
             f"Received {output_root_text!r}. "
-            "Check the command or Slurm script and remove the extra spaces."
+            "Check the command and remove the extra spaces."
         )
 
     return Path(output_root_text)
