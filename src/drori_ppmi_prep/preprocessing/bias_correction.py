@@ -2,6 +2,31 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import nibabel as nib
+import numpy as np
+
+
+FREESURFER_WM_LABELS = (2, 41)
+
+
+def create_freesurfer_wm_mask(aparc_aseg_path: str | Path, output_mask_path: str | Path):
+    aparc_aseg_path = Path(aparc_aseg_path)
+    output_mask_path = Path(output_mask_path)
+
+    if not aparc_aseg_path.exists():
+        return None, "missing"
+
+    aseg_img = nib.load(str(aparc_aseg_path))
+    aseg_data = aseg_img.get_fdata()
+    mask = np.isin(np.rint(aseg_data).astype(np.int32), FREESURFER_WM_LABELS).astype(np.uint8)
+
+    output_mask_path.parent.mkdir(parents=True, exist_ok=True)
+    mask_img = nib.Nifti1Image(mask, aseg_img.affine, aseg_img.header)
+    mask_img.set_data_dtype(np.uint8)
+    nib.save(mask_img, str(output_mask_path))
+
+    return output_mask_path, "done"
+
 
 def run_t1_space_bias_correction(
     session_dir: str | Path,
@@ -11,15 +36,16 @@ def run_t1_space_bias_correction(
     session_dir = Path(session_dir)
     t1_space_dir = session_dir / "t1_space"
     output_dir = t1_space_dir / f"mri_unbias_deg{degree}"
-    wm_mask = (
+    aparc_aseg = (
         t1_space_dir
         / "segmentation"
         / "freesurfer"
         / "t1_space_outputs"
-        / "wm.nii.gz"
+        / "aparc+aseg.nii.gz"
     )
+    wm_mask = output_dir / "wm_labels_2_41_mask.nii.gz"
 
-    if not wm_mask.exists():
+    if not aparc_aseg.exists():
         return None, "missing"
 
     images = [
@@ -41,6 +67,7 @@ def run_t1_space_bias_correction(
             output_dir / image_path.name,
             output_dir / f"{image_path.name.removesuffix('.nii.gz')}_bias.nii.gz",
         ])
+    expected_outputs.append(wm_mask)
 
     if all(path.exists() for path in expected_outputs) and not overwrite:
         return output_dir, "skipped"
@@ -52,6 +79,11 @@ def run_t1_space_bias_correction(
             "Bias correction requires mri-unbias. Reinstall drori_ppmi_prep "
             "so pip installs its dependencies."
         ) from exc
+
+    if overwrite or not wm_mask.exists():
+        _, mask_status = create_freesurfer_wm_mask(aparc_aseg, wm_mask)
+        if mask_status != "done":
+            return None, mask_status
 
     for image_path in images:
         corrected_path = output_dir / image_path.name
