@@ -5,6 +5,18 @@ import nibabel as nib
 import numpy as np
 
 
+def matlab_sphere_1_structure():
+    structure = np.zeros((3, 3, 3), dtype=bool)
+    structure[1, 1, 1] = True
+    structure[0, 1, 1] = True
+    structure[2, 1, 1] = True
+    structure[1, 0, 1] = True
+    structure[1, 2, 1] = True
+    structure[1, 1, 0] = True
+    structure[1, 1, 2] = True
+    return structure
+
+
 def erode_label_segmentation(
     segmentation_file,
     output_file=None,
@@ -34,8 +46,8 @@ def erode_label_segmentation(
 
     eroded_data = np.zeros_like(data, dtype=np.int16)
 
-    # Similar to MATLAB strel("sphere", 1)
-    structure = np.ones((3, 3, 3), dtype=bool)
+    # Match MATLAB strel("sphere", 1): center voxel plus 6 face neighbors.
+    structure = matlab_sphere_1_structure()
 
     for label in labels:
         mask = data == label
