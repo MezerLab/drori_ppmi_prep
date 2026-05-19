@@ -28,6 +28,7 @@ src/drori_ppmi_prep/metadata/dicom_enrichment.py
 src/drori_ppmi_prep/pipeline/__init__.py
 src/drori_ppmi_prep/pipeline/full.py
 src/drori_ppmi_prep/pipeline/infrastructure.py
+src/drori_ppmi_prep/pipeline/paths.py
 src/drori_ppmi_prep/pipeline/session.py
 src/drori_ppmi_prep/preprocessing/__init__.py
 src/drori_ppmi_prep/preprocessing/bias_correction.py

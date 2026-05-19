@@ -13,6 +13,7 @@ from drori_ppmi_prep.cli.check_outputs import (
     summarize,
 )
 from drori_ppmi_prep.pipeline.infrastructure import run_build_infrastructure
+from drori_ppmi_prep.pipeline.paths import validate_output_root_path
 from drori_ppmi_prep.pipeline.session import run_session_pipeline
 
 
@@ -24,7 +25,7 @@ def print_banner():
 
 
 def load_ppmi_config(output_root):
-    output_root = Path(output_root)
+    output_root = validate_output_root_path(output_root)
     config_path = output_root / "ppmi_config.json"
 
     if not config_path.exists():
@@ -34,7 +35,7 @@ def load_ppmi_config(output_root):
 
 
 def infrastructure_outputs_exist(output_root):
-    output_root = Path(output_root)
+    output_root = validate_output_root_path(output_root)
     required_paths = [
         output_root / "ppmi_config.json",
         output_root / "ppmi_metadata.csv",

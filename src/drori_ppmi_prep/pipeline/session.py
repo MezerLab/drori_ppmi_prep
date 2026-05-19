@@ -14,10 +14,11 @@ from drori_ppmi_prep.segmentation.freesurfer import (
     export_all_freesurfer_mgz_to_orig_space,
 )
 from drori_ppmi_prep.preprocessing.bias_correction import run_t1_space_bias_correction
+from drori_ppmi_prep.pipeline.paths import validate_output_root_path
 
 
 def load_ppmi_config(output_root):
-    output_root = Path(output_root)
+    output_root = validate_output_root_path(output_root)
     config_path = output_root / "ppmi_config.json"
 
     if not config_path.exists():
@@ -59,7 +60,7 @@ def run_session_pipeline(
 ):
     config = load_ppmi_config(output_root)
     analysis_root = Path(config["analysis_root"])
-    output_root = Path(output_root)
+    output_root = validate_output_root_path(output_root)
 
     session_dir = analysis_root / str(subject_id) / str(session_id)
     if not session_dir.exists():
