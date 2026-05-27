@@ -15,6 +15,13 @@ from drori_ppmi_prep.cli.check_outputs import (
 from drori_ppmi_prep.pipeline.infrastructure import run_build_infrastructure
 from drori_ppmi_prep.pipeline.paths import validate_output_root_path
 from drori_ppmi_prep.pipeline.session import run_session_pipeline
+from drori_ppmi_prep.segmentation.massp import (
+    AHEAD_TEMPLATE_ARTICLE_ID,
+    AHEAD_TEMPLATE_FILENAME,
+    MASSP_ATLAS_ARTICLE_ID,
+    MASSP_ATLAS_FILENAME,
+    resolve_massp_resource,
+)
 
 
 def print_banner():
@@ -55,12 +62,18 @@ def run_one_session(job):
         flirt_cmd,
         first_cmd,
         synthseg_cmd,
+        ants_registration_cmd,
+        ants_apply_cmd,
         freesurfer_cmd,
         mri_vol2vol_cmd,
         dbsegment_cmd,
+        massp_atlas_path,
+        massp_template_path,
+        massp_download,
         dbsegment_use_cuda,
         run_first,
         run_synthseg,
+        run_massp,
         run_freesurfer,
         run_dbsegment,
         run_bias_correction,
@@ -78,12 +91,18 @@ def run_one_session(job):
             flirt_cmd=flirt_cmd,
             first_cmd=first_cmd,
             synthseg_cmd=synthseg_cmd,
+            ants_registration_cmd=ants_registration_cmd,
+            ants_apply_cmd=ants_apply_cmd,
             freesurfer_cmd=freesurfer_cmd,
             mri_vol2vol_cmd=mri_vol2vol_cmd,
             dbsegment_cmd=dbsegment_cmd,
+            massp_atlas_path=massp_atlas_path,
+            massp_template_path=massp_template_path,
+            massp_download=massp_download,
             dbsegment_use_cuda=dbsegment_use_cuda,
             run_first_segmentation=run_first,
             run_synthseg_segmentation=run_synthseg,
+            run_massp_segmentation=run_massp,
             run_freesurfer_segmentation=run_freesurfer,
             run_dbsegment_segmentation=run_dbsegment,
             run_bias_correction=run_bias_correction,
@@ -131,6 +150,15 @@ def main():
     parser.add_argument("--flirt-cmd", default="flirt")
     parser.add_argument("--first-cmd", default="run_first_all")
     parser.add_argument("--synthseg-cmd", default="mri_synthseg")
+    parser.add_argument("--ants-registration-cmd", default="antsRegistration")
+    parser.add_argument("--ants-apply-cmd", default="antsApplyTransforms")
+    parser.add_argument("--massp-atlas", default=None)
+    parser.add_argument("--massp-template", default=None)
+    parser.add_argument(
+        "--massp-no-download",
+        action="store_true",
+        help="Do not automatically download the MASSP atlas or AHEAD template if missing.",
+    )
     parser.add_argument("--dbsegment-cmd", default="DBSegment")
     parser.add_argument(
         "--dbsegment-cpu",
@@ -148,6 +176,7 @@ def main():
     parser.add_argument("--skip-dbsegment", action="store_true")
     parser.add_argument("--skip-first", action="store_true")
     parser.add_argument("--skip-synthseg", action="store_true")
+    parser.add_argument("--skip-massp", action="store_true")
     parser.add_argument("--skip-bias-correction", action="store_true")
     parser.add_argument(
         "--force-bias-correction",
@@ -194,6 +223,29 @@ def main():
 
     config = load_ppmi_config(output_root)
     analysis_root = Path(config["analysis_root"])
+    massp_atlas_path = args.massp_atlas
+    massp_template_path = args.massp_template
+
+    if not args.skip_massp:
+        massp_cache_dir = output_root / "group_analysis" / "atlases" / "massp2021"
+        try:
+            massp_template_path = resolve_massp_resource(
+                args.massp_template,
+                massp_cache_dir,
+                AHEAD_TEMPLATE_ARTICLE_ID,
+                AHEAD_TEMPLATE_FILENAME,
+                allow_download=not args.massp_no_download,
+            )
+            massp_atlas_path = resolve_massp_resource(
+                args.massp_atlas,
+                massp_cache_dir,
+                MASSP_ATLAS_ARTICLE_ID,
+                MASSP_ATLAS_FILENAME,
+                allow_download=not args.massp_no_download,
+            )
+        except Exception:
+            massp_template_path = None
+            massp_atlas_path = None
 
     jobs = []
 
@@ -215,12 +267,18 @@ def main():
                     args.flirt_cmd,
                     args.first_cmd,
                     args.synthseg_cmd,
+                    args.ants_registration_cmd,
+                    args.ants_apply_cmd,
                     args.freesurfer_cmd,
                     args.mri_vol2vol_cmd,
                     args.dbsegment_cmd,
+                    massp_atlas_path,
+                    massp_template_path,
+                    not args.massp_no_download,
                     not (args.parallel or args.dbsegment_cpu),
                     not args.skip_first,
                     not args.skip_synthseg,
+                    not args.skip_massp,
                     not args.skip_freesurfer,
                     not args.skip_dbsegment,
                     not args.skip_bias_correction,

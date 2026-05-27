@@ -9,6 +9,14 @@ from drori_ppmi_prep.segmentation.first import run_fsl_first
 from drori_ppmi_prep.segmentation.utils import erode_label_segmentation
 from drori_ppmi_prep.segmentation.dbsegment import run_dbsegment
 from drori_ppmi_prep.segmentation.synthseg import run_synthseg
+from drori_ppmi_prep.segmentation.massp import (
+    AHEAD_TEMPLATE_ARTICLE_ID,
+    AHEAD_TEMPLATE_FILENAME,
+    MASSP_ATLAS_ARTICLE_ID,
+    MASSP_ATLAS_FILENAME,
+    resolve_massp_resource,
+    run_massp_atlas_segmentation,
+)
 from drori_ppmi_prep.segmentation.freesurfer import (
     run_freesurfer,
     link_freesurfer_to_session,
@@ -50,13 +58,19 @@ def run_session_pipeline(
     flirt_cmd="flirt",
     first_cmd="run_first_all",
     synthseg_cmd="mri_synthseg",
+    ants_registration_cmd="antsRegistration",
+    ants_apply_cmd="antsApplyTransforms",
     freesurfer_cmd="recon-all",
     mri_vol2vol_cmd="mri_vol2vol",
     dbsegment_cmd="DBSegment",
+    massp_atlas_path=None,
+    massp_template_path=None,
+    massp_download=True,
     dbsegment_model_path=None,
     dbsegment_use_cuda=True,
     run_first_segmentation=True,
     run_synthseg_segmentation=True,
+    run_massp_segmentation=True,
     run_freesurfer_segmentation=True,
     run_dbsegment_segmentation=True,
     run_bias_correction=True,
@@ -74,6 +88,7 @@ def run_session_pipeline(
             2
             + int(run_first_segmentation)
             + int(run_synthseg_segmentation)
+            + int(run_massp_segmentation)
             + int(run_freesurfer_segmentation)
             + int(run_dbsegment_segmentation)
             + int(run_bias_correction)
@@ -171,6 +186,42 @@ def run_session_pipeline(
         print_done_or_skipped(status)
         step += 1
 
+    if run_massp_segmentation:
+        print(f"  ({step}/{total_steps}): Running MASSP atlas registration ({ants_registration_cmd})... ", end="", flush=True)
+
+        massp_cache_dir = output_root / "group_analysis" / "atlases" / "massp2021"
+        try:
+            resolved_massp_template = resolve_massp_resource(
+                massp_template_path,
+                massp_cache_dir,
+                AHEAD_TEMPLATE_ARTICLE_ID,
+                AHEAD_TEMPLATE_FILENAME,
+                allow_download=massp_download,
+            )
+            resolved_massp_atlas = resolve_massp_resource(
+                massp_atlas_path,
+                massp_cache_dir,
+                MASSP_ATLAS_ARTICLE_ID,
+                MASSP_ATLAS_FILENAME,
+                allow_download=massp_download,
+            )
+        except Exception:
+            resolved_massp_template = None
+            resolved_massp_atlas = None
+
+        _, status = run_massp_atlas_segmentation(
+            target_image=session_dir / "t1_space" / "segmentation" / "synthstrip" / "T1_brainmask.nii.gz",
+            output_dir=session_dir / "t1_space" / "segmentation" / "massp" / "ahead2sub_ants",
+            atlas_path=resolved_massp_atlas,
+            template_path=resolved_massp_template,
+            ants_registration_cmd=ants_registration_cmd,
+            ants_apply_cmd=ants_apply_cmd,
+            overwrite=force,
+        )
+
+        print_done_or_skipped(status)
+        step += 1
+
     if run_bias_correction:
         print(f"  ({step}/{total_steps}): Running polynomial bias correction... ", end="", flush=True)
 
@@ -236,6 +287,7 @@ def main():
     parser.add_argument("--force", action="store_true")
     parser.add_argument("--skip-first", action="store_true")
     parser.add_argument("--skip-synthseg", action="store_true")
+    parser.add_argument("--skip-massp", action="store_true")
     parser.add_argument("--skip-freesurfer", action="store_true")
     parser.add_argument("--skip-dbsegment", action="store_true")
     parser.add_argument("--skip-bias-correction", action="store_true")
@@ -249,6 +301,15 @@ def main():
     parser.add_argument("--flirt-cmd", default="flirt")
     parser.add_argument("--first-cmd", default="run_first_all")
     parser.add_argument("--synthseg-cmd", default="mri_synthseg")
+    parser.add_argument("--ants-registration-cmd", default="antsRegistration")
+    parser.add_argument("--ants-apply-cmd", default="antsApplyTransforms")
+    parser.add_argument("--massp-atlas", default=None)
+    parser.add_argument("--massp-template", default=None)
+    parser.add_argument(
+        "--massp-no-download",
+        action="store_true",
+        help="Do not automatically download the MASSP atlas or AHEAD template if missing.",
+    )
 
     parser.add_argument("--dbsegment-cmd", default="DBSegment")
     parser.add_argument(
@@ -271,10 +332,16 @@ def main():
         flirt_cmd=args.flirt_cmd,
         first_cmd=args.first_cmd,
         synthseg_cmd=args.synthseg_cmd,
+        ants_registration_cmd=args.ants_registration_cmd,
+        ants_apply_cmd=args.ants_apply_cmd,
         freesurfer_cmd=args.freesurfer_cmd,
         mri_vol2vol_cmd=args.mri_vol2vol_cmd,
+        massp_atlas_path=args.massp_atlas,
+        massp_template_path=args.massp_template,
+        massp_download=not args.massp_no_download,
         run_first_segmentation=not args.skip_first,
         run_synthseg_segmentation=not args.skip_synthseg,
+        run_massp_segmentation=not args.skip_massp,
         run_freesurfer_segmentation=not args.skip_freesurfer,
 
         dbsegment_cmd=args.dbsegment_cmd,

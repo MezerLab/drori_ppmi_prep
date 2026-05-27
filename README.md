@@ -35,6 +35,8 @@ External tools are also required for the full pipeline:
 - FreeSurfer / SynthStrip, typically `mri_synthstrip` and `recon-all`
 - FSL, for `flirt` and `run_first_all`
 - `DBSegment`, if DBSegment outputs are requested
+- ANTs, for MASSP atlas nonlinear registration:
+  https://github.com/ANTsX/ANTs
 
 ## Expected Input Layout
 
@@ -77,6 +79,8 @@ drori-ppmi-register-to-t1 ANALYSIS_ROOT
 drori-ppmi-run-first ANALYSIS_ROOT
 drori-ppmi-run-dbsegment ANALYSIS_ROOT
 drori-ppmi-run-synthseg ANALYSIS_ROOT
+drori-ppmi-download-massp OUTPUT_ROOT
+drori-ppmi-run-massp ANALYSIS_ROOT
 drori-ppmi-run-freesurfer ANALYSIS_ROOT
 drori-ppmi-check-outputs OUTPUT_ROOT
 ```
@@ -100,13 +104,18 @@ drori-ppmi-run-pipeline PPMI_ROOT IDASEARCH_DIR OUTPUT_ROOT \
 ```
 
 For example, use `--skip-first`, `--skip-dbsegment`, `--skip-synthseg`,
-`--skip-freesurfer`, or `--skip-bias-correction` to disable optional processing
-during the full pipeline. When `--parallel` is used, DBSegment is run CPU-only
-automatically to avoid concurrent CUDA use. Use `--skip-infrastructure-if-exists`
-to rerun session-level processing without rebuilding metadata, NIfTI conversion,
-and the analysis directory when those outputs already exist. Use
-`--force-bias-correction` to recreate only the `mri_unbias_deg2` outputs without
-forcing the other session-level steps.
+`--skip-massp`, `--skip-freesurfer`, or `--skip-bias-correction` to disable
+optional processing during the full pipeline. When `--parallel` is used,
+DBSegment is run CPU-only automatically to avoid concurrent CUDA use. Use
+`--skip-infrastructure-if-exists` to rerun session-level processing without
+rebuilding metadata, NIfTI conversion, and the analysis directory when those
+outputs already exist. Use `--force-bias-correction` to recreate only the
+`mri_unbias_deg2` outputs without forcing the other session-level steps.
+
+The MASSP step uses the AHEAD template and MASSP 2021 Older Adults atlas from
+Figshare. By default, the pipeline downloads missing resources into
+`OUTPUT_ROOT/group_analysis/atlases/massp2021/`. Use `--massp-atlas`,
+`--massp-template`, or `--massp-no-download` to use manually managed files.
 
 ## Pipeline Steps
 
@@ -134,11 +143,15 @@ For each analysis session, the session pipeline then runs:
    `first_all_fast_firstseg_eroded.nii.gz`.
 5. Optionally run DBSegment on the T1 reference.
 6. Optionally run FreeSurfer SynthSeg on the T1 reference.
-7. Optionally run FreeSurfer `recon-all` on the T1 reference, link the
+7. Optionally run MASSP atlas segmentation by nonlinearly registering the AHEAD
+   R1 template to the brain-masked T1 reference with ANTs and applying the
+   transform to the MASSP 2021 older-adults parcellation with nearest-neighbor
+   interpolation.
+8. Optionally run FreeSurfer `recon-all` on the T1 reference, link the
    FreeSurfer `mri/` directory into the session segmentation directory, and
    export FreeSurfer `.mgz` volumes back into the session T1 space under
    `freesurfer/t1_space_outputs/`.
-8. Optionally run polynomial degree-2 bias correction on available
+9. Optionally run polynomial degree-2 bias correction on available
    `t1_space/T1.nii.gz`, `PD.nii.gz`, and `T2.nii.gz` images using the
    eroded SynthSeg labels 2 and 41 as the white-matter mask and the SynthStrip
    T1 brain mask as the brain mask when available.
@@ -188,6 +201,14 @@ t1_space/
     dbsegment/
     synthseg/
       synthseg.nii.gz
+    massp/
+      ahead2sub_ants/
+        ahead_med_qr1_2ref.nii.gz
+        massp2021-parcellation_decade-61to80_2ref.nii.gz
+        ahead2sub_0GenericAffine.mat
+        ahead2sub_1Warp.nii.gz
+        ahead2sub_1InverseWarp.nii.gz
+        README.txt
     freesurfer/
       t1_space_outputs/
   mri_unbias_deg2/
@@ -213,4 +234,4 @@ Core code is under `src/drori_ppmi_prep/`:
 - `analysis/`: analysis-directory creation
 - `preprocessing/`: SynthStrip and bias-correction helpers
 - `registration/`: FSL FLIRT registration helpers
-- `segmentation/`: FSL FIRST, DBSegment, SynthSeg, FreeSurfer, and segmentation utilities
+- `segmentation/`: FSL FIRST, DBSegment, SynthSeg, MASSP, FreeSurfer, and segmentation utilities
