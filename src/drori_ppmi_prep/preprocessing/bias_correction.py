@@ -11,7 +11,7 @@ from drori_ppmi_prep.segmentation.utils import erode_label_segmentation
 SYNTHSEG_WM_LABELS = (2, 41)
 README_TEXT = """Bias map is estimated in each image using a 2-degree 3D polynomial within white-matter mask.
 White-matter mask is defined as an eroded whole-WM ROI from SynthSeg.
-Brain mask is defined from SynthStrip T1.
+Brain mask is defined from SynthStrip T1 when available.
 Raw image is divided by the estimated bias map.
 """
 
@@ -59,8 +59,10 @@ def run_t1_space_bias_correction(
     eroded_wm_mask = output_dir / "wm_mask_eroded.nii.gz"
     readme_file = output_dir / "README.txt"
 
-    if not synthseg_segmentation.exists() or not brain_mask.exists():
+    if not synthseg_segmentation.exists():
         return None, "missing"
+
+    brain_mask = brain_mask if brain_mask.exists() else None
 
     images = [
         image_path

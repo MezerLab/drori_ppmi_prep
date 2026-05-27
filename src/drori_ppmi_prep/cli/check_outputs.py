@@ -315,7 +315,6 @@ def build_checks(session_dir, native_sources=None):
     )
 
     bias_source = session_dir / "t1_space/segmentation/synthseg/synthseg.nii.gz"
-    bias_brain_mask = session_dir / "t1_space/segmentation/synthstrip/T1_brainmask_mask.nii.gz"
     bias_dir = session_dir / "t1_space/mri_unbias_deg2"
     bias_images = [
         image
@@ -323,7 +322,7 @@ def build_checks(session_dir, native_sources=None):
         if (session_dir / f"t1_space/{image}.nii.gz").exists()
     ]
     checks["mri_unbias_deg2"] = status(
-        bias_source.exists() and bias_brain_mask.exists() and bool(bias_images),
+        bias_source.exists() and bool(bias_images),
         all(
             (bias_dir / f"{image}.nii.gz").exists()
             and (bias_dir / f"{image}_bias.nii.gz").exists()

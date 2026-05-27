@@ -141,7 +141,7 @@ For each analysis session, the session pipeline then runs:
 8. Optionally run polynomial degree-2 bias correction on available
    `t1_space/T1.nii.gz`, `PD.nii.gz`, and `T2.nii.gz` images using the
    eroded SynthSeg labels 2 and 41 as the white-matter mask and the SynthStrip
-   T1 brain mask as the brain mask.
+   T1 brain mask as the brain mask when available.
 
 ## Output Structure
 
