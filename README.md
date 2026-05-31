@@ -110,7 +110,8 @@ drori-ppmi-run-pipeline PPMI_ROOT IDASEARCH_DIR OUTPUT_ROOT \
 For example, use `--skip-first`, `--skip-dbsegment`, `--skip-synthseg`,
 `--skip-massp`, `--skip-freesurfer`, `--skip-bias-correction`, or
 `--skip-mrgrad`, or `--skip-roi-stats` to disable optional processing during
-the full pipeline. When
+the full pipeline. Use `--skip-session-pipeline` to bypass all session-level
+steps and continue directly to group analyses. When
 `--parallel` is used, DBSegment is run CPU-only automatically to avoid
 concurrent CUDA use and mrGrad runs with MATLAB `Parallel = true`. Use
 `--skip-infrastructure-if-exists` to rerun session-level processing without

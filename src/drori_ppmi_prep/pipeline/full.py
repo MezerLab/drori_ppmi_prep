@@ -187,6 +187,11 @@ def main():
     parser.add_argument("--skip-synthseg", action="store_true")
     parser.add_argument("--skip-massp", action="store_true")
     parser.add_argument("--skip-bias-correction", action="store_true")
+    parser.add_argument(
+        "--skip-session-pipeline",
+        action="store_true",
+        help="Skip all session-level preprocessing and continue to group analyses.",
+    )
     parser.add_argument("--skip-mrgrad", action="store_true")
     parser.add_argument("--skip-roi-stats", action="store_true")
     parser.add_argument(
@@ -227,17 +232,12 @@ def main():
             max_workers=args.max_workers,
         )
 
-    print()
-    print("-" * 70)
-    print("Running session-level preprocessing for all sessions...")
-    print("-" * 70)
-
     config = load_ppmi_config(output_root)
     analysis_root = Path(config["analysis_root"])
     massp_atlas_path = args.massp_atlas
     massp_template_path = args.massp_template
 
-    if not args.skip_massp:
+    if not args.skip_session_pipeline and not args.skip_massp:
         massp_cache_dir = output_root / "group_analysis" / "atlases" / "massp2021"
         try:
             massp_template_path = resolve_massp_resource(
@@ -260,54 +260,64 @@ def main():
 
     jobs = []
 
-    for subject_dir in sorted(analysis_root.iterdir()):
-        if not subject_dir.is_dir():
-            continue
+    if not args.skip_session_pipeline:
+        print()
+        print("-" * 70)
+        print("Running session-level preprocessing for all sessions...")
+        print("-" * 70)
 
-        for session_dir in sorted(subject_dir.iterdir()):
-            if not session_dir.is_dir():
+        for subject_dir in sorted(analysis_root.iterdir()):
+            if not subject_dir.is_dir():
                 continue
 
-            jobs.append(
-                (
-                    output_root,
-                    subject_dir.name,
-                    session_dir.name,
-                    args.force,
-                    args.synthstrip_cmd,
-                    args.flirt_cmd,
-                    args.first_cmd,
-                    args.synthseg_cmd,
-                    args.ants_registration_cmd,
-                    args.ants_apply_cmd,
-                    args.freesurfer_cmd,
-                    args.mri_vol2vol_cmd,
-                    args.dbsegment_cmd,
-                    massp_atlas_path,
-                    massp_template_path,
-                    not args.massp_no_download,
-                    not (args.parallel or args.dbsegment_cpu),
-                    not args.skip_first,
-                    not args.skip_synthseg,
-                    not args.skip_massp,
-                    not args.skip_freesurfer,
-                    not args.skip_dbsegment,
-                    not args.skip_bias_correction,
-                    args.force_bias_correction,
-                    args.parallel
+            for session_dir in sorted(subject_dir.iterdir()):
+                if not session_dir.is_dir():
+                    continue
+
+                jobs.append(
+                    (
+                        output_root,
+                        subject_dir.name,
+                        session_dir.name,
+                        args.force,
+                        args.synthstrip_cmd,
+                        args.flirt_cmd,
+                        args.first_cmd,
+                        args.synthseg_cmd,
+                        args.ants_registration_cmd,
+                        args.ants_apply_cmd,
+                        args.freesurfer_cmd,
+                        args.mri_vol2vol_cmd,
+                        args.dbsegment_cmd,
+                        massp_atlas_path,
+                        massp_template_path,
+                        not args.massp_no_download,
+                        not (args.parallel or args.dbsegment_cpu),
+                        not args.skip_first,
+                        not args.skip_synthseg,
+                        not args.skip_massp,
+                        not args.skip_freesurfer,
+                        not args.skip_dbsegment,
+                        not args.skip_bias_correction,
+                        args.force_bias_correction,
+                        args.parallel
+                    )
                 )
-            )
 
-    print(f"Found {len(jobs)} sessions.")
-    print(f"Parallel mode: {args.parallel}")
+        print(f"Found {len(jobs)} sessions.")
+        print(f"Parallel mode: {args.parallel}")
 
-    if args.parallel:
-        print(f"Max workers: {args.max_workers or 'default'}")
+        if args.parallel:
+            print(f"Max workers: {args.max_workers or 'default'}")
 
-    print()
+        print()
+    else:
+        print()
+        print("-" * 70)
+        print("Skipping session-level preprocessing.")
+        print("-" * 70)
 
     processed_sessions = 0
-
     if args.parallel:
         with ProcessPoolExecutor(max_workers=args.max_workers) as executor:
             futures = [executor.submit(run_one_session, job) for job in jobs]
