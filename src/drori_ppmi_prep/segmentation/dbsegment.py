@@ -5,6 +5,46 @@ import subprocess
 import tempfile
 from pathlib import Path
 
+import nibabel as nib
+import numpy as np
+
+
+GP_SN_LABEL_GROUPS = {
+    4: (4, 6),
+    5: (5, 7),
+    18: (18, 20),
+    19: (19, 21),
+}
+
+
+def create_gp_sn_segmentation(dbsegment_file, output_file, overwrite=False):
+    dbsegment_file = Path(dbsegment_file)
+    output_file = Path(output_file)
+
+    if not dbsegment_file.exists():
+        return None, "missing"
+
+    if output_file.exists() and not overwrite:
+        return output_file, "skipped"
+
+    source_img = nib.load(str(dbsegment_file))
+    source_data = np.rint(source_img.get_fdata()).astype(np.int32)
+    derivative_data = np.zeros(source_data.shape, dtype=np.uint8)
+
+    for output_label, source_labels in GP_SN_LABEL_GROUPS.items():
+        derivative_data[np.isin(source_data, source_labels)] = output_label
+
+    output_file.parent.mkdir(parents=True, exist_ok=True)
+    derivative_img = nib.Nifti1Image(
+        derivative_data,
+        source_img.affine,
+        source_img.header,
+    )
+    derivative_img.set_data_dtype(np.uint8)
+    nib.save(derivative_img, str(output_file))
+
+    return output_file, "done"
+
 
 def remove_dbsegment_logs(output_dir):
     for log_file in [
@@ -31,8 +71,12 @@ def run_dbsegment(
         return None, "missing"
 
     output_file = output_dir / "T1.nii.gz"
+    derivative_file = output_dir / "derivatives" / "GP_SN_seg.nii.gz"
 
     if output_file.exists() and not overwrite:
+        _, derivative_status = create_gp_sn_segmentation(output_file, derivative_file)
+        if derivative_status not in {"done", "skipped"}:
+            return None, "failed"
         return output_file, "skipped"
 
     if shutil.which(dbsegment_cmd) is None:
@@ -94,6 +138,13 @@ def run_dbsegment(
                 return None, "failed"
 
         if output_file.exists():
+            _, derivative_status = create_gp_sn_segmentation(
+                output_file,
+                derivative_file,
+                overwrite=overwrite,
+            )
+            if derivative_status not in {"done", "skipped"}:
+                return None, "failed"
             remove_dbsegment_logs(output_dir)
             return output_file, "done"
 

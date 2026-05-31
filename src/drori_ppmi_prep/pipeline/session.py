@@ -145,12 +145,14 @@ def run_session_pipeline(
             brain_extracted=True,
         )
 
-        erode_label_segmentation(
+        eroded_output = erode_label_segmentation(
             segmentation_file=output_dir / "first_all_fast_firstseg.nii.gz",
             output_file=output_dir / "first_all_fast_firstseg_eroded.nii.gz",
             iterations=1,
             overwrite=force,
         )
+        if eroded_output is None:
+            status = "failed"
 
         print_done_or_skipped(status)
         step += 1

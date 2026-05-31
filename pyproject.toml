@@ -32,9 +32,14 @@ drori-ppmi-run-freesurfer = "drori_ppmi_prep.cli.run_freesurfer:main"
 drori-ppmi-run-dbsegment = "drori_ppmi_prep.cli.run_dbsegment:main"
 drori-ppmi-check-outputs = "drori_ppmi_prep.cli.check_outputs:main"
 drori-ppmi-run-pipeline = "drori_ppmi_prep.cli.run_pipeline:main"
+drori-ppmi-run-mrgrad = "drori_ppmi_prep.cli.run_mrgrad:main"
+drori-ppmi-run-roi-stats = "drori_ppmi_prep.cli.run_roi_stats:main"
 
 [tool.setuptools]
 package-dir = {"" = "src"}
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+drori_ppmi_prep = ["analysis/mrgrad_presets/*.json"]

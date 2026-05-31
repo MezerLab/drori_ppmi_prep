@@ -1,0 +1,17 @@
+{
+  "analysis_name": "mrgrad-gpe-dbsegment-5seg",
+  "segmentation": "t1_space/segmentation/dbsegment/derivatives/GP_SN_seg.nii.gz",
+  "maps": [
+    {"name": "T1", "path": "t1_space/mri_unbias_deg2/T1.nii.gz", "unit": "a.u."},
+    {"name": "T2", "path": "t1_space/mri_unbias_deg2/T2.nii.gz", "unit": "a.u."},
+    {"name": "PD", "path": "t1_space/mri_unbias_deg2/PD.nii.gz", "unit": "a.u."}
+  ],
+  "roi": [4, 5],
+  "roi_names": ["left-GPe", "right-GPe"],
+  "n_segments": 5,
+  "segmenting_method": "equidistance",
+  "max_change": [[2, 3, 1], [2, 3, 1]],
+  "allow_missing": true,
+  "output_mode": "extended",
+  "output_name": "mrGrad_GPe.mat"
+}

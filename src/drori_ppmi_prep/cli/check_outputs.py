@@ -5,6 +5,8 @@ from pathlib import Path
 
 import pandas as pd
 
+from drori_ppmi_prep.segmentation.first import is_valid_first_segmentation
+
 
 def resolve_analysis_root(path):
     path = Path(path)
@@ -287,17 +289,25 @@ def build_checks(session_dir, native_sources=None):
     t1_reference = Path("t1_space/segmentation/synthstrip/T1_brainmask.nii.gz")
     t1_reference_exists = (session_dir / t1_reference).exists()
 
+    first_segmentation = (
+        session_dir / "t1_space/segmentation/fslfirst/first_all_fast_firstseg.nii.gz"
+    )
+    first_segmentation_exists = is_valid_first_segmentation(first_segmentation)
     checks["fsl_first"] = status(
         t1_reference_exists,
-        (session_dir / "t1_space/segmentation/fslfirst/first_all_fast_firstseg.nii.gz").exists(),
+        first_segmentation_exists,
     )
     checks["fsl_first_eroded"] = status(
-        t1_reference_exists,
+        first_segmentation_exists,
         (session_dir / "t1_space/segmentation/fslfirst/first_all_fast_firstseg_eroded.nii.gz").exists(),
     )
     checks["dbsegment"] = status(
         t1_reference_exists,
         (session_dir / "t1_space/segmentation/dbsegment/T1.nii.gz").exists(),
+    )
+    checks["dbsegment_GP_SN"] = status(
+        (session_dir / "t1_space/segmentation/dbsegment/T1.nii.gz").exists(),
+        (session_dir / "t1_space/segmentation/dbsegment/derivatives/GP_SN_seg.nii.gz").exists(),
     )
     checks["synthseg"] = status(
         (session_dir / "t1_space/T1.nii.gz").exists(),

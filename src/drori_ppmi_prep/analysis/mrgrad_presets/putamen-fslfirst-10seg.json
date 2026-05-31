@@ -1,0 +1,17 @@
+{
+  "analysis_name": "mrgrad-putamen-fslfirst-10seg",
+  "segmentation": "t1_space/segmentation/fslfirst/first_all_fast_firstseg_eroded.nii.gz",
+  "maps": [
+    {"name": "T1", "path": "t1_space/mri_unbias_deg2/T1.nii.gz", "unit": "a.u."},
+    {"name": "T2", "path": "t1_space/mri_unbias_deg2/T2.nii.gz", "unit": "a.u."},
+    {"name": "PD", "path": "t1_space/mri_unbias_deg2/PD.nii.gz", "unit": "a.u."}
+  ],
+  "roi": [12, 51],
+  "roi_names": ["left-putamen", "right-putamen"],
+  "n_segments": 10,
+  "segmenting_method": "equidistance",
+  "max_change": [[2, 3, 1], [2, 3, 1]],
+  "allow_missing": true,
+  "output_mode": "extended",
+  "output_name": "mrGrad_putamen.mat"
+}

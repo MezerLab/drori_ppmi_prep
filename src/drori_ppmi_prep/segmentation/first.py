@@ -2,6 +2,19 @@ from pathlib import Path
 import shutil
 import subprocess
 
+import nibabel as nib
+
+
+def is_valid_first_segmentation(path):
+    path = Path(path)
+    if not path.exists():
+        return False
+
+    try:
+        return len(nib.load(str(path)).shape) == 3
+    except Exception:
+        return False
+
 
 def run_fsl_first(
     input_image,
@@ -20,10 +33,10 @@ def run_fsl_first(
         return None, "missing_command"
 
     expected_output = output_dir / "first_all_fast_firstseg.nii.gz"
-    if expected_output.exists() and not overwrite:
+    if is_valid_first_segmentation(expected_output) and not overwrite:
         return output_dir, "skipped"
 
-    if output_dir.exists() and overwrite:
+    if output_dir.exists() and (overwrite or expected_output.exists()):
         shutil.rmtree(output_dir)
 
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -49,7 +62,7 @@ def run_fsl_first(
     if result.returncode != 0:
         return None, "failed"
 
-    if expected_output.exists():
+    if is_valid_first_segmentation(expected_output):
         return output_dir, "done"
 
     return None, "failed"

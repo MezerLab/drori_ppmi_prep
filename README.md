@@ -37,6 +37,8 @@ External tools are also required for the full pipeline:
 - `DBSegment`, if DBSegment outputs are requested
 - ANTs, for MASSP atlas nonlinear registration:
   https://github.com/ANTsX/ANTs
+- MATLAB, for group-level mrGrad analysis:
+  https://www.mathworks.com/products/matlab.html
 
 ## Expected Input Layout
 
@@ -83,6 +85,8 @@ drori-ppmi-download-massp OUTPUT_ROOT
 drori-ppmi-run-massp ANALYSIS_ROOT
 drori-ppmi-run-freesurfer ANALYSIS_ROOT
 drori-ppmi-check-outputs OUTPUT_ROOT
+drori-ppmi-run-mrgrad OUTPUT_ROOT
+drori-ppmi-run-roi-stats OUTPUT_ROOT
 ```
 
 Use `--help` on any command to see available options, including alternate tool
@@ -104,9 +108,11 @@ drori-ppmi-run-pipeline PPMI_ROOT IDASEARCH_DIR OUTPUT_ROOT \
 ```
 
 For example, use `--skip-first`, `--skip-dbsegment`, `--skip-synthseg`,
-`--skip-massp`, `--skip-freesurfer`, or `--skip-bias-correction` to disable
-optional processing during the full pipeline. When `--parallel` is used,
-DBSegment is run CPU-only automatically to avoid concurrent CUDA use. Use
+`--skip-massp`, `--skip-freesurfer`, `--skip-bias-correction`, or
+`--skip-mrgrad`, or `--skip-roi-stats` to disable optional processing during
+the full pipeline. When
+`--parallel` is used, DBSegment is run CPU-only automatically to avoid
+concurrent CUDA use and mrGrad runs with MATLAB `Parallel = true`. Use
 `--skip-infrastructure-if-exists` to rerun session-level processing without
 rebuilding metadata, NIfTI conversion, and the analysis directory when those
 outputs already exist. Use `--force-bias-correction` to recreate only the
@@ -116,6 +122,59 @@ The MASSP step uses the AHEAD template and MASSP 2021 Older Adults atlas from
 Figshare. By default, the pipeline downloads missing resources into
 `OUTPUT_ROOT/group_analysis/atlases/massp2021/`. Use `--massp-atlas`,
 `--massp-template`, or `--massp-no-download` to use manually managed files.
+
+## mrGrad Analyses
+
+The full pipeline runs group-level mrGrad analyses after session-level outputs
+are complete. They can also be run separately:
+
+```bash
+drori-ppmi-run-mrgrad OUTPUT_ROOT
+```
+
+The command downloads and caches the pinned `mrGrad v2.0.3` MATLAB toolbox from
+https://github.com/MezerLab/mrGrad when needed. Use `--mrgrad-dir PATH` to
+provide an existing toolbox checkout or `--mrgrad-no-download` to disable the
+automatic download.
+
+Built-in presets:
+
+```text
+putamen-fslfirst-10seg  eroded FSL FIRST putamen labels 12 and 51, 10 segments
+gpe-dbsegment-5seg     DBSegment-derived GPe labels 4 and 5, 5 segments
+```
+
+Both presets sample corrected T1, T2, and PD images using equidistance
+segments, `max_change = [2 3 1]` for each ROI, mrGrad `extended` output mode,
+and `allow_missing = true`. Results are written under:
+
+```text
+group_analysis/mrGrad/mrgrad-putamen-fslfirst-10seg/
+  mrGrad_putamen.mat
+  mrGrad_putamen.csv
+  mrgrad_input.mat
+  mrgrad_input_sessions.csv
+  run_mrgrad.m
+  mrGradSeg/
+group_analysis/mrGrad/mrgrad-gpe-dbsegment-5seg/
+  mrGrad_GPe.mat
+  mrGrad_GPe.csv
+  ...
+```
+
+List or inspect presets:
+
+```bash
+drori-ppmi-run-mrgrad --list-presets
+drori-ppmi-run-mrgrad --show-preset gpe-dbsegment-5seg
+```
+
+Run selected presets or a custom JSON configuration:
+
+```bash
+drori-ppmi-run-mrgrad OUTPUT_ROOT --preset putamen-fslfirst-10seg
+drori-ppmi-run-mrgrad OUTPUT_ROOT --config my_mrgrad_analysis.json
+```
 
 ## Pipeline Steps
 
@@ -141,7 +200,10 @@ For each analysis session, the session pipeline then runs:
 4. Optionally run FSL FIRST on the T1 reference and erode
    `first_all_fast_firstseg.nii.gz` to create
    `first_all_fast_firstseg_eroded.nii.gz`.
-5. Optionally run DBSegment on the T1 reference.
+5. Optionally run DBSegment on the T1 reference and derive a combined GP/SN
+   segmentation from the DBSegment subregion labels: left GP `(4, 6) -> 4`,
+   right GP `(5, 7) -> 5`, left SN `(18, 20) -> 18`, and right SN
+   `(19, 21) -> 19`.
 6. Optionally run FreeSurfer SynthSeg on the T1 reference.
 7. Optionally run MASSP atlas segmentation by nonlinearly registering the AHEAD
    R1 template to the brain-masked T1 reference with ANTs and applying the
@@ -155,6 +217,46 @@ For each analysis session, the session pipeline then runs:
    `t1_space/T1.nii.gz`, `PD.nii.gz`, and `T2.nii.gz` images using the
    eroded SynthSeg labels 2 and 41 as the white-matter mask and the SynthStrip
    T1 brain mask as the brain mask when available.
+
+After all session-level jobs finish, the full pipeline optionally runs the
+built-in group-level mrGrad presets and ROI-statistics tables.
+
+## ROI Statistics
+
+The full pipeline writes group-level ROI tables after session processing. They
+can also be generated independently:
+
+```bash
+drori-ppmi-run-roi-stats OUTPUT_ROOT
+```
+
+Tables are written under `group_analysis/ROI_stats/t1_space/` for uncorrected
+T1-space images and under `group_analysis/ROI_stats/t1_space/mri_unbias_deg2/`
+for corrected images. Each CSV preserves the metadata session rows and starts
+with `SubjectID` and `SessionID`. Missing images, segmentations, ROIs, or
+incompatible grids are represented as `NaN`.
+
+For each segmentation and each available `t1`, `t2`, and `pd` image, the
+command creates `median`, `mean`, `mad`, and `std` tables. Here `mad` is the
+median absolute deviation. It also creates one `volume` table per segmentation;
+volume values are in mm3. For example:
+
+```text
+group_analysis/ROI_stats/t1_space/
+  fslfirst_t1_median.csv
+  fslfirst_t2_std.csv
+  fslfirst_volume.csv
+  mri_unbias_deg2/
+    fslfirst_t1_median.csv
+```
+
+The command includes FreeSurfer `aparc.DKTatlas+aseg`, SynthStrip, SynthSeg,
+FSL FIRST, eroded FSL FIRST, DBSegment, the DBSegment GP/SN derivative, and
+MASSP. ROI columns are named as `<label>_<ROI-name>`. For FreeSurfer
+`aparc.DKTatlas+aseg`, names are read from
+`$FREESURFER_HOME/FreeSurferColorLUT.txt` when available. A different LUT can
+be supplied with `--freesurfer-lut PATH`. The remaining stable lookup tables
+are built into this package.
 
 ## Output Structure
 
@@ -199,6 +301,9 @@ t1_space/
       first_all_fast_firstseg.nii.gz
       first_all_fast_firstseg_eroded.nii.gz
     dbsegment/
+      T1.nii.gz
+      derivatives/
+        GP_SN_seg.nii.gz
     synthseg/
       synthseg.nii.gz
     massp/

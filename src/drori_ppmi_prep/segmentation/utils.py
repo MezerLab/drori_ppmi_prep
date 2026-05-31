@@ -38,8 +38,14 @@ def erode_label_segmentation(
     if not segmentation_file.exists():
         return None
 
-    img = nib.load(str(segmentation_file))
-    data = img.get_fdata()
+    try:
+        img = nib.load(str(segmentation_file))
+        data = img.get_fdata()
+    except Exception:
+        return None
+
+    if data.ndim != 3:
+        return None
 
     labels = np.unique(data)
     labels = labels[labels != 0]
