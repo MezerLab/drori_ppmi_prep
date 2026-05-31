@@ -12,6 +12,7 @@ from tempfile import TemporaryDirectory
 from urllib.request import urlopen
 
 import numpy as np
+import pandas as pd
 from scipy.io import savemat
 
 
@@ -39,15 +40,15 @@ REQUIRED_CONFIG_KEYS = {
 }
 
 
-def resolve_analysis_root(output_root):
+def resolve_dataset_paths(output_root):
     output_root = Path(output_root)
     config_path = output_root / "ppmi_config.json"
 
     if config_path.exists():
         config = json.loads(config_path.read_text())
-        return Path(config["analysis_root"])
+        return Path(config["analysis_root"]), Path(config["metadata_csv"])
 
-    return output_root / "PPMI_analysis"
+    return output_root / "PPMI_analysis", output_root / "ppmi_metadata.csv"
 
 
 def download_mrgrad_release(cache_root):
@@ -163,34 +164,49 @@ def validate_mrgrad_config(config):
         raise ValueError("mrGrad output_name must be a .mat filename without directories.")
 
 
-def collect_mrgrad_sessions(analysis_root, config):
+def normalize_subject_id(value):
+    value = str(value).strip()
+    try:
+        number = float(value)
+        if number.is_integer():
+            return str(int(number))
+    except ValueError:
+        pass
+    return value
+
+
+def collect_mrgrad_sessions(analysis_root, metadata_csv, config):
     analysis_root = Path(analysis_root)
+    metadata_csv = Path(metadata_csv)
+    if not metadata_csv.exists():
+        raise FileNotFoundError(f"Metadata CSV not found: {metadata_csv}")
+
+    metadata = pd.read_csv(
+        metadata_csv,
+        dtype={"SubjectID": str, "SessionID": str, "AnalysisDir": str},
+    )
+    required_columns = {"SubjectID", "SessionID"}
+    if not required_columns <= set(metadata.columns):
+        raise ValueError("Metadata CSV must contain SubjectID and SessionID columns.")
+
     rows = []
+    for _, metadata_row in metadata.iterrows():
+        subject_id = normalize_subject_id(metadata_row["SubjectID"])
+        session_id = str(metadata_row["SessionID"]).strip()
+        analysis_dir = str(metadata_row.get("AnalysisDir", "")).strip()
+        if not analysis_dir or analysis_dir.lower() == "nan":
+            analysis_dir = str(Path(subject_id) / session_id)
+        session_dir = analysis_root / analysis_dir
 
-    for subject_dir in sorted(analysis_root.iterdir()):
-        if not subject_dir.is_dir():
-            continue
-
-        for session_dir in sorted(subject_dir.iterdir()):
-            if not session_dir.is_dir():
-                continue
-
-            row = {
-                "subject_id": subject_dir.name,
-                "session_id": session_dir.name,
-                "analysis_id": f"{subject_dir.name}_{session_dir.name}",
-                "segmentation": str(session_dir / config["segmentation"]),
-            }
-            for map_config in config["maps"]:
-                row[map_config["name"]] = str(session_dir / map_config["path"])
-
-            complete = all(
-                Path(path).exists()
-                for key, path in row.items()
-                if key not in {"subject_id", "session_id", "analysis_id"}
-            )
-            if complete or config["allow_missing"]:
-                rows.append(row)
+        row = {
+            "subject_id": subject_id,
+            "session_id": session_id,
+            "analysis_id": f"{subject_id}_{session_id}",
+            "segmentation": str(session_dir / config["segmentation"]),
+        }
+        for map_config in config["maps"]:
+            row[map_config["name"]] = str(session_dir / map_config["path"])
+        rows.append(row)
 
     return rows
 
@@ -299,7 +315,7 @@ def run_mrgrad_analysis(
 ):
     validate_mrgrad_config(config)
     output_root = Path(output_root).resolve()
-    analysis_root = resolve_analysis_root(output_root)
+    analysis_root, metadata_csv = resolve_dataset_paths(output_root)
     group_dir = output_root / "group_analysis" / "mrGrad"
     output_dir = group_dir / config["analysis_name"]
     toolbox_cache = group_dir / "toolbox"
@@ -310,7 +326,10 @@ def run_mrgrad_analysis(
     if not analysis_root.exists():
         return None, "missing"
 
-    rows = collect_mrgrad_sessions(analysis_root, config)
+    try:
+        rows = collect_mrgrad_sessions(analysis_root, metadata_csv, config)
+    except (FileNotFoundError, ValueError):
+        return None, "missing"
     if not rows:
         return None, "missing"
 

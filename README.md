@@ -146,7 +146,9 @@ gpe-dbsegment-5seg     DBSegment-derived GPe labels 4 and 5, 5 segments
 
 Both presets sample corrected T1, T2, and PD images using equidistance
 segments, `max_change = [2 3 1]` for each ROI, mrGrad `extended` output mode,
-and `allow_missing = true`. Results are written under:
+and `allow_missing = true`. The mrGrad input preserves the row order from
+`ppmi_metadata.csv` and includes every metadata row, including sessions with
+missing inputs. Results are written under:
 
 ```text
 group_analysis/mrGrad/mrgrad-putamen-fslfirst-10seg/
