@@ -37,7 +37,7 @@ External tools are also required for the full pipeline:
 - `DBSegment`, if DBSegment outputs are requested
 - ANTs, for MASSP atlas nonlinear registration:
   https://github.com/ANTsX/ANTs
-- MATLAB, for group-level mrGrad analysis:
+- MATLAB, for the optional standalone mrGrad analysis command:
   https://www.mathworks.com/products/matlab.html
 
 ## Expected Input Layout
@@ -109,11 +109,11 @@ drori-ppmi-run-pipeline PPMI_ROOT IDASEARCH_DIR OUTPUT_ROOT \
 
 For example, use `--skip-first`, `--skip-dbsegment`, `--skip-synthseg`,
 `--skip-massp`, `--skip-freesurfer`, `--skip-bias-correction`, or
-`--skip-mrgrad`, or `--skip-roi-stats` to disable optional processing during
-the full pipeline. Use `--skip-session-pipeline` to bypass all session-level
-steps and continue directly to group analyses. When
+`--skip-roi-stats` to disable optional processing during the full pipeline.
+Use `--skip-session-pipeline` to bypass all session-level steps and continue
+directly to group analyses. When
 `--parallel` is used, DBSegment is run CPU-only automatically to avoid
-concurrent CUDA use and mrGrad runs with MATLAB `Parallel = true`. Use
+concurrent CUDA use. Use
 `--skip-infrastructure-if-exists` to rerun session-level processing without
 rebuilding metadata, NIfTI conversion, and the analysis directory when those
 outputs already exist. Use `--force-bias-correction` to recreate only the
@@ -128,8 +128,9 @@ Figshare. By default, the pipeline downloads missing resources into
 
 ## mrGrad Analyses
 
-The full pipeline runs group-level mrGrad analyses after session-level outputs
-are complete. They can also be run separately:
+mrGrad analyses are optional group-level analyses and are not run by the full
+preprocessing pipeline. Run them separately after preprocessing outputs are
+available:
 
 ```bash
 drori-ppmi-run-mrgrad OUTPUT_ROOT
@@ -224,8 +225,8 @@ For each analysis session, the session pipeline then runs:
    eroded SynthSeg labels 2 and 41 as the white-matter mask and the SynthStrip
    T1 brain mask as the brain mask when available.
 
-After all session-level jobs finish, the full pipeline optionally runs the
-built-in group-level mrGrad presets and ROI-statistics tables.
+After all session-level jobs finish, the full pipeline optionally writes
+ROI-statistics tables.
 
 ## ROI Statistics
 

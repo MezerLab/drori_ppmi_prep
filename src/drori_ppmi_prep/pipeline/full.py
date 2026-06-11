@@ -6,7 +6,6 @@ from pathlib import Path
 import contextlib
 import os
 
-from drori_ppmi_prep.analysis.mrgrad import run_mrgrad_presets
 from drori_ppmi_prep.analysis.roi_stats import run_roi_stats
 from drori_ppmi_prep.cli.check_outputs import (
     build_native_source_availability,
@@ -176,11 +175,6 @@ def main():
     parser.add_argument("--freesurfer-cmd", default="recon-all")
     parser.add_argument("--mri-vol2vol-cmd", default="mri_vol2vol")
     parser.add_argument("--file-pattern", default="*.csv")
-    parser.add_argument("--matlab-cmd", default="matlab")
-    parser.add_argument("--mrgrad-dir", default=None)
-    parser.add_argument("--mrgrad-no-download", action="store_true")
-    parser.add_argument("--mrgrad-parallel", action="store_true")
-    parser.add_argument("--force-mrgrad", action="store_true")
     parser.add_argument("--freesurfer-lut", default=None)
     parser.add_argument("--force-roi-stats", action="store_true")
 
@@ -195,7 +189,6 @@ def main():
         action="store_true",
         help="Skip all session-level preprocessing and continue to group analyses.",
     )
-    parser.add_argument("--skip-mrgrad", action="store_true")
     parser.add_argument("--skip-roi-stats", action="store_true")
     parser.add_argument(
         "--restart-incomplete-freesurfer",
@@ -338,30 +331,6 @@ def main():
         for job in jobs:
             subject_id, session_id = run_one_session(job)
             processed_sessions += 1
-
-    if not args.skip_mrgrad:
-        print()
-        print("-" * 70)
-        print("Running group-level mrGrad analyses...")
-        print("-" * 70)
-        for preset_name, output, status in run_mrgrad_presets(
-            output_root=output_root,
-            mrgrad_dir=args.mrgrad_dir,
-            matlab_cmd=args.matlab_cmd,
-            allow_download=not args.mrgrad_no_download,
-            overwrite=args.force or args.force_mrgrad,
-            parallel=args.parallel or args.mrgrad_parallel,
-        ):
-            if status == "done":
-                print(f"DONE: {preset_name}: {output}")
-            elif status == "skipped":
-                print(f"SKIPPED: already done: {preset_name}: {output}")
-            elif status == "missing_command":
-                print(f"SKIPPED: MATLAB command not found: {preset_name}")
-            elif status == "missing":
-                print(f"SKIPPED: missing required inputs or mrGrad toolbox: {preset_name}")
-            else:
-                print(f"FAILED: {preset_name}. Check the mrGrad output logs.")
 
     if not args.skip_roi_stats:
         print()
