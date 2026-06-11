@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import os
-from concurrent.futures import ProcessPoolExecutor
+from concurrent.futures import ProcessPoolExecutor, as_completed
 from pathlib import Path
 
 import nibabel as nib
@@ -23,6 +23,7 @@ IMAGE_PATHS = {
     },
 }
 INTENSITY_STATS = ("median", "mean", "mad", "std")
+ROI_STATS = INTENSITY_STATS + ("volume",)
 
 ASEG_LABELS = {
     2: "Left-Cerebral-White-Matter",
@@ -294,31 +295,46 @@ def _load_image(path):
         return None, None
 
 
-def _intensity_values(values):
+def _intensity_values(values, stats):
     values = values[np.isfinite(values)]
     if values.size == 0:
-        return {stat: np.nan for stat in INTENSITY_STATS}
+        return {stat: np.nan for stat in stats}
 
-    median = float(np.median(values))
-    return {
-        "median": median,
-        "mean": float(np.mean(values)),
-        "mad": float(np.median(np.abs(values - median))),
-        "std": float(np.std(values)),
-    }
+    result = {}
+    median = None
+    if "median" in stats or "mad" in stats:
+        median = float(np.median(values))
+    if "median" in stats:
+        result["median"] = median
+    if "mean" in stats:
+        result["mean"] = float(np.mean(values))
+    if "mad" in stats:
+        result["mad"] = float(np.median(np.abs(values - median)))
+    if "std" in stats:
+        result["std"] = float(np.std(values))
+    return result
 
 
 def _session_stats(job):
-    row_index, analysis_root, subject_id, session_id, segmentations = job
+    (
+        row_index,
+        analysis_root,
+        subject_id,
+        session_id,
+        segmentations,
+        image_paths,
+        intensity_stats,
+        include_volume,
+    ) = job
     session_dir = Path(analysis_root) / subject_id / session_id
     result = {"row_index": row_index, "stats": {}}
+    image_cache = {}
 
-    images = {}
-    for image_set, paths in IMAGE_PATHS.items():
-        images[image_set] = {
-            image_name: _load_image(session_dir / relative_path)
-            for image_name, relative_path in paths.items()
-        }
+    def load_image(image_set, image_name, relative_path):
+        key = (image_set, image_name)
+        if key not in image_cache:
+            image_cache[key] = _load_image(session_dir / relative_path)
+        return image_cache[key]
 
     for segmentation_name, config in segmentations.items():
         segmentation_image, segmentation_data = _load_image(session_dir / config["path"])
@@ -331,26 +347,33 @@ def _session_stats(job):
 
         segmentation_data = np.rint(segmentation_data).astype(np.int32)
         voxel_volume = float(abs(np.linalg.det(segmentation_image.affine[:3, :3])))
+        compatible_images = {}
+        if intensity_stats:
+            for image_set, paths in image_paths.items():
+                compatible_images[image_set] = {}
+                for image_name, relative_path in paths.items():
+                    image, image_data = load_image(image_set, image_name, relative_path)
+                    if (
+                        image_data is None
+                        or image_data.shape != segmentation_data.shape
+                        or not np.allclose(image.affine, segmentation_image.affine)
+                    ):
+                        continue
+                    compatible_images[image_set][image_name] = image_data
+                    segmentation_result["images"].setdefault(image_set, {})[image_name] = {}
 
         for label in labels:
-            segmentation_result["volume"][label] = (
-                float(np.count_nonzero(segmentation_data == label)) * voxel_volume
-            )
-
-        for image_set, image_data_by_name in images.items():
-            segmentation_result["images"][image_set] = {}
-            for image_name, (image, image_data) in image_data_by_name.items():
-                if (
-                    image_data is None
-                    or image_data.shape != segmentation_data.shape
-                    or not np.allclose(image.affine, segmentation_image.affine)
-                ):
-                    continue
-                image_result = {}
-                segmentation_result["images"][image_set][image_name] = image_result
-                for label in labels:
-                    image_result[label] = _intensity_values(
-                        image_data[segmentation_data == label]
+            mask = segmentation_data == label
+            if include_volume:
+                segmentation_result["volume"][label] = (
+                    float(np.count_nonzero(mask)) * voxel_volume
+                )
+            if not intensity_stats:
+                continue
+            for image_set, image_data_by_name in compatible_images.items():
+                for image_name, image_data in image_data_by_name.items():
+                    segmentation_result["images"][image_set][image_name][label] = (
+                        _intensity_values(image_data[mask], intensity_stats)
                     )
 
     return result
@@ -375,25 +398,84 @@ def _normalize_subject_id(value):
     return value
 
 
-def _output_files(output_root, segmentations):
+def _select_image_paths(selected_images):
+    if selected_images is None:
+        return {
+            image_set: dict(paths)
+            for image_set, paths in IMAGE_PATHS.items()
+        }
+
+    selected_images = list(dict.fromkeys(selected_images))
+    valid_images = {
+        image_name
+        for paths in IMAGE_PATHS.values()
+        for image_name in paths
+    }
+    unknown = sorted(set(selected_images) - valid_images)
+    if unknown:
+        available = ", ".join(sorted(valid_images))
+        raise ValueError(
+            f"Unknown image(s): {', '.join(unknown)}. "
+            f"Available images: {available}"
+        )
+
+    return {
+        image_set: {
+            image_name: relative_path
+            for image_name, relative_path in paths.items()
+            if image_name in selected_images
+        }
+        for image_set, paths in IMAGE_PATHS.items()
+    }
+
+
+def _select_stats(selected_stats):
+    if selected_stats is None:
+        selected_stats = ROI_STATS
+    selected_stats = list(dict.fromkeys(selected_stats))
+    unknown = sorted(set(selected_stats) - set(ROI_STATS))
+    if unknown:
+        available = ", ".join(ROI_STATS)
+        raise ValueError(
+            f"Unknown stat(s): {', '.join(unknown)}. "
+            f"Available stats: {available}"
+        )
+    return (
+        tuple(stat for stat in selected_stats if stat in INTENSITY_STATS),
+        "volume" in selected_stats,
+    )
+
+
+def _output_files(output_root, segmentations, image_paths, intensity_stats, include_volume):
     output_root = Path(output_root)
     files = []
     for segmentation_name in segmentations:
-        files.append(
-            output_root
-            / "group_analysis"
-            / "ROI_stats"
-            / "t1_space"
-            / f"{segmentation_name}_volume.csv"
-        )
-        for image_set in IMAGE_PATHS:
+        if include_volume:
+            files.append(
+                output_root
+                / "group_analysis"
+                / "ROI_stats"
+                / "t1_space"
+                / f"{segmentation_name}_volume.csv"
+            )
+        for image_set in image_paths:
             output_dir = output_root / "group_analysis" / "ROI_stats" / "t1_space"
             if image_set != "t1_space":
                 output_dir = output_dir / image_set
-            for image_name in IMAGE_PATHS[image_set]:
-                for stat in INTENSITY_STATS:
+            for image_name in image_paths[image_set]:
+                for stat in intensity_stats:
                     files.append(output_dir / f"{segmentation_name}_{image_name}_{stat}.csv")
     return files
+
+
+def _roi_column_name(label_name):
+    return label_name.replace("-", "_")
+
+
+def _progress_message(completed, total, interval):
+    if interval <= 0:
+        return False
+    return completed == total or completed == 1 or completed % interval == 0
 
 
 def run_roi_stats(
@@ -402,6 +484,11 @@ def run_roi_stats(
     overwrite=False,
     parallel=False,
     max_workers=None,
+    selected_segmentations=None,
+    selected_images=None,
+    selected_stats=None,
+    progress=True,
+    progress_interval=50,
 ):
     output_root = Path(output_root)
     analysis_root, metadata_csv = resolve_dataset_paths(output_root)
@@ -410,9 +497,33 @@ def run_roi_stats(
         name: dict(config)
         for name, config in SEGMENTATIONS.items()
     }
-    segmentations["freesurfer"]["labels"] = resolve_freesurfer_lut(freesurfer_lut)
+    if selected_segmentations is not None:
+        selected_segmentations = list(dict.fromkeys(selected_segmentations))
+        unknown = sorted(set(selected_segmentations) - set(segmentations))
+        if unknown:
+            available = ", ".join(segmentations)
+            raise ValueError(
+                f"Unknown segmentation(s): {', '.join(unknown)}. "
+                f"Available segmentations: {available}"
+            )
+        segmentations = {
+            name: segmentations[name]
+            for name in selected_segmentations
+        }
 
-    output_files = _output_files(output_root, segmentations)
+    if "freesurfer" in segmentations:
+        segmentations["freesurfer"]["labels"] = resolve_freesurfer_lut(freesurfer_lut)
+
+    image_paths = _select_image_paths(selected_images)
+    intensity_stats, include_volume = _select_stats(selected_stats)
+
+    output_files = _output_files(
+        output_root,
+        segmentations,
+        image_paths,
+        intensity_stats,
+        include_volume,
+    )
     if not overwrite and all(path.exists() for path in output_files):
         return output_root / "group_analysis" / "ROI_stats", "skipped"
 
@@ -423,21 +534,53 @@ def run_roi_stats(
             _normalize_subject_id(row["SubjectID"]),
             str(row["SessionID"]),
             segmentations,
+            image_paths,
+            intensity_stats,
+            include_volume,
         )
         for row_index, row in metadata.iterrows()
     ]
+    total_jobs = len(jobs)
+    if progress:
+        segmentation_names = ", ".join(segmentations)
+        image_names = ", ".join(
+            dict.fromkeys(
+                image_name
+                for paths in image_paths.values()
+                for image_name in paths
+            )
+        )
+        stat_names = ", ".join((*intensity_stats, *(("volume",) if include_volume else ())))
+        print(
+            "Running ROI stats: "
+            f"{total_jobs} sessions; "
+            f"segmentations={segmentation_names}; "
+            f"images={image_names or 'none'}; "
+            f"stats={stat_names or 'none'}",
+            flush=True,
+        )
+
     if parallel:
+        session_results = []
         with ProcessPoolExecutor(max_workers=max_workers) as executor:
-            session_results = list(executor.map(_session_stats, jobs))
+            futures = [executor.submit(_session_stats, job) for job in jobs]
+            for completed, future in enumerate(as_completed(futures), start=1):
+                session_results.append(future.result())
+                if progress and _progress_message(completed, total_jobs, progress_interval):
+                    print(f"  processed {completed}/{total_jobs} sessions", flush=True)
     else:
-        session_results = [_session_stats(job) for job in jobs]
+        session_results = []
+        for completed, job in enumerate(jobs, start=1):
+            session_results.append(_session_stats(job))
+            if progress and _progress_message(completed, total_jobs, progress_interval):
+                print(f"  processed {completed}/{total_jobs} sessions", flush=True)
 
     session_results = {result["row_index"]: result["stats"] for result in session_results}
     base_columns = metadata.reset_index(drop=True)
 
     def write_table(path, segmentation_name, labels, value_getter):
         roi_columns = {
-            f"{label}_{label_name}": [
+            _roi_column_name(label_name): [
                 value_getter(session_results[row_index].get(segmentation_name, {}), label)
                 for row_index in metadata.index
             ]
@@ -450,19 +593,23 @@ def run_roi_stats(
         path.parent.mkdir(parents=True, exist_ok=True)
         table.to_csv(path, index=False)
 
+    if progress:
+        print("Writing ROI stats tables...", flush=True)
+
     for segmentation_name, config in segmentations.items():
         labels = config["labels"]
         output_dir = output_root / "group_analysis" / "ROI_stats" / "t1_space"
-        write_table(
-            output_dir / f"{segmentation_name}_volume.csv",
-            segmentation_name,
-            labels,
-            lambda result, label: result.get("volume", {}).get(label, np.nan),
-        )
-        for image_set in IMAGE_PATHS:
+        if include_volume:
+            write_table(
+                output_dir / f"{segmentation_name}_volume.csv",
+                segmentation_name,
+                labels,
+                lambda result, label: result.get("volume", {}).get(label, np.nan),
+            )
+        for image_set in image_paths:
             image_output_dir = output_dir if image_set == "t1_space" else output_dir / image_set
-            for image_name in IMAGE_PATHS[image_set]:
-                for stat in INTENSITY_STATS:
+            for image_name in image_paths[image_set]:
+                for stat in intensity_stats:
                     write_table(
                         image_output_dir / f"{segmentation_name}_{image_name}_{stat}.csv",
                         segmentation_name,

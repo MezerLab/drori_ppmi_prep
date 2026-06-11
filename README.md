@@ -236,6 +236,25 @@ can also be generated independently:
 drori-ppmi-run-roi-stats OUTPUT_ROOT
 ```
 
+Use repeated `--segmentation NAME` options to regenerate only selected tables:
+
+```bash
+drori-ppmi-run-roi-stats OUTPUT_ROOT --overwrite --parallel --segmentation dbsegment --segmentation fslfirst
+```
+
+Valid segmentation names are `freesurfer`, `synthstrip`, `synthseg`,
+`fslfirst`, `fslfirst_eroded`, `dbsegment`, `dbsegment_GP_SN`, and `massp`.
+Images and statistics can be filtered as well:
+
+```bash
+drori-ppmi-run-roi-stats OUTPUT_ROOT --overwrite --segmentation dbsegment --image t1 --stat mean --stat volume
+```
+
+Valid image names are `t1`, `t2`, and `pd`. Valid statistics are `median`,
+`mean`, `mad`, `std`, and `volume`.
+The command prints coarse progress every 50 completed sessions by default. Use
+`--progress-interval N` to change this or `--quiet` to disable progress output.
+
 Tables are written under `group_analysis/ROI_stats/t1_space/` for uncorrected
 T1-space images and under `group_analysis/ROI_stats/t1_space/mri_unbias_deg2/`
 for corrected images. Each CSV preserves the metadata session rows and starts
@@ -258,7 +277,8 @@ group_analysis/ROI_stats/t1_space/
 
 The command includes FreeSurfer `aparc.DKTatlas+aseg`, SynthStrip, SynthSeg,
 FSL FIRST, eroded FSL FIRST, DBSegment, the DBSegment GP/SN derivative, and
-MASSP. ROI columns are named as `<label>_<ROI-name>`. For FreeSurfer
+MASSP. ROI columns are named by ROI name, with hyphens converted to
+underscores. For FreeSurfer
 `aparc.DKTatlas+aseg`, names are read from
 `$FREESURFER_HOME/FreeSurferColorLUT.txt` when available. A different LUT can
 be supplied with `--freesurfer-lut PATH`. The remaining stable lookup tables
