@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 
 from drori_ppmi_prep.analysis.dataset_builder import build_analysis_dataset_from_metadata
+from drori_ppmi_prep.clinical.cohort_tables import build_cohort_clinical_tables
 from drori_ppmi_prep.conversion.dicom_to_nifti import convert_ppmi_dicoms_to_nifti
 from drori_ppmi_prep.metadata.builder import build_ppmi_metadata_csv
 from drori_ppmi_prep.metadata.dicom_enrichment import enrich_metadata_with_dicom_info
@@ -18,6 +19,8 @@ def write_ppmi_config(
     analysis_root,
     group_analysis_root,
     freesurfer_root,
+    cohort_tables_root=None,
+    study_tables_root=None,
 ):
     config = {
         "ppmi_root": str(Path(ppmi_root).resolve()),
@@ -29,6 +32,10 @@ def write_ppmi_config(
         "group_analysis_root": str(Path(group_analysis_root).resolve()),
         "freesurfer_root": str(Path(freesurfer_root).resolve()),
     }
+    if cohort_tables_root is not None:
+        config["cohort_tables_root"] = str(Path(cohort_tables_root).resolve())
+    if study_tables_root is not None:
+        config["study_tables_root"] = str(Path(study_tables_root).resolve())
 
     config_path = Path(output_root) / "ppmi_config.json"
     config_path.write_text(json.dumps(config, indent=2))
@@ -44,6 +51,9 @@ def run_build_infrastructure(
     force: bool = False,
     parallel: bool = False,
     max_workers: int | None = None,
+    study_tables_root: str | None = None,
+    skip_cohort_tables: bool = False,
+    force_cohort_tables: bool = False,
 ):
     ppmi_root = Path(ppmi_root)
     idaSearch_dir = Path(idaSearch_dir)
@@ -55,6 +65,7 @@ def run_build_infrastructure(
 
     group_analysis_root = output_root / "group_analysis"
     freesurfer_root = group_analysis_root / "FreeSurfer"
+    cohort_tables_root = output_root / "cohort_tables"
 
     print("-" * 70)
     print("Building dataset infrastructure...")
@@ -62,7 +73,7 @@ def run_build_infrastructure(
 
     output_root.mkdir(parents=True, exist_ok=True)
 
-    total_steps = 4
+    total_steps = 5
 
     print(f"  (1/{total_steps}): Building metadata CSV...")
     build_ppmi_metadata_csv(
@@ -98,7 +109,25 @@ def run_build_infrastructure(
         overwrite=force,
     )
 
-    print(f"  (4/{total_steps}): Writing config file...")
+    print(f"  (4/{total_steps}): Building cohort clinical tables...")
+    if skip_cohort_tables:
+        print("         SKIPPED: disabled by --skip-cohort-tables")
+    elif study_tables_root is None:
+        print("         SKIPPED: no --study-tables-root provided")
+    else:
+        result = build_cohort_clinical_tables(
+            metadata_csv=metadata_csv,
+            study_tables_root=study_tables_root,
+            output_dir=cohort_tables_root,
+            overwrite=force or force_cohort_tables,
+        )
+        print(f"         Tables written/found: {len(result['tables'])}")
+        for name, reason in result["skipped"].items():
+            print(f"         SKIPPED {name}: {reason}")
+        for name, (_, status) in result["metrics"].items():
+            print(f"         METRIC {name}: {status}")
+
+    print(f"  (5/{total_steps}): Writing config file...")
     config_path = write_ppmi_config(
         ppmi_root=ppmi_root,
         idaSearch_dir=idaSearch_dir,
@@ -108,12 +137,15 @@ def run_build_infrastructure(
         analysis_root=analysis_root,
         group_analysis_root=group_analysis_root,
         freesurfer_root=freesurfer_root,
+        cohort_tables_root=cohort_tables_root,
+        study_tables_root=study_tables_root,
     )
 
     print("Infrastructure build finished.")
     print(f"  Metadata CSV: {metadata_csv}")
     print(f"  NIfTI root: {nifti_root}")
     print(f"  Analysis root: {analysis_root}")
+    print(f"  Cohort tables root: {cohort_tables_root}")
     print(f"  Config file: {config_path}")
 
 
@@ -126,6 +158,13 @@ def main():
     parser.add_argument("output_root")
     parser.add_argument("--file-pattern", default="*.csv")
     parser.add_argument("--dcm2niix-cmd", default="dcm2niix")
+    parser.add_argument(
+        "--study-tables-root",
+        default=None,
+        help="Root directory containing downloaded PPMI study tables.",
+    )
+    parser.add_argument("--skip-cohort-tables", action="store_true")
+    parser.add_argument("--force-cohort-tables", action="store_true")
     parser.add_argument("--force", action="store_true")
     parser.add_argument(
         "--parallel",
@@ -150,6 +189,9 @@ def main():
         force=args.force,
         parallel=args.parallel,
         max_workers=args.max_workers,
+        study_tables_root=args.study_tables_root,
+        skip_cohort_tables=args.skip_cohort_tables,
+        force_cohort_tables=args.force_cohort_tables,
     )
 
 

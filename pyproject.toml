@@ -22,6 +22,7 @@ drori-ppmi-run-session = "drori_ppmi_prep.cli.run_session:main"
 
 drori-ppmi-convert = "drori_ppmi_prep.cli.convert_dicoms:main"
 drori-ppmi-build-metadata = "drori_ppmi_prep.cli.build_metadata:main"
+drori-ppmi-build-cohort-tables = "drori_ppmi_prep.cli.build_cohort_tables:main"
 drori-ppmi-build-analysis = "drori_ppmi_prep.cli.build_analysis:main"
 drori-ppmi-register-to-t1 = "drori_ppmi_prep.cli.register_to_t1:main"
 drori-ppmi-run-first = "drori_ppmi_prep.cli.run_first:main"

@@ -75,6 +75,7 @@ Individual steps are also available:
 
 ```bash
 drori-ppmi-build-metadata IDASEARCH_DIR PPMI_ROOT OUTPUT_CSV
+drori-ppmi-build-cohort-tables OUTPUT_ROOT STUDY_TABLES_ROOT
 drori-ppmi-convert PPMI_ROOT NIFTI_OUTPUT_ROOT
 drori-ppmi-build-analysis METADATA_CSV NIFTI_ROOT ANALYSIS_ROOT
 drori-ppmi-register-to-t1 ANALYSIS_ROOT
@@ -100,6 +101,7 @@ drori-ppmi-run-pipeline PPMI_ROOT IDASEARCH_DIR OUTPUT_ROOT \
   --max-workers 8 \
   --skip-infrastructure-if-exists \
   --force \
+  --study-tables-root /path/to/Study \
   --dcm2niix-cmd dcm2niix \
   --synthstrip-cmd mri_synthstrip \
   --flirt-cmd flirt \
@@ -118,6 +120,8 @@ concurrent CUDA use. Use
 rebuilding metadata, NIfTI conversion, and the analysis directory when those
 outputs already exist. Use `--force-bias-correction` to recreate only the
 `mri_unbias_deg2` outputs without forcing the other session-level steps. Use
+`--study-tables-root PATH` to generate cohort-specific clinical tables during
+infrastructure building; missing study tables are reported and skipped.
 `--restart-incomplete-freesurfer` to delete and restart only incomplete
 FreeSurfer subject directories while leaving completed reconstructions intact.
 
@@ -183,6 +187,36 @@ drori-ppmi-run-mrgrad OUTPUT_ROOT --preset putamen-fslfirst-10seg
 drori-ppmi-run-mrgrad OUTPUT_ROOT --config my_mrgrad_analysis.json
 ```
 
+## Clinical Cohort Tables
+
+If PPMI study tables were downloaded, the infrastructure step can create
+cohort-specific clinical tables with the same rows as `ppmi_metadata.csv`:
+
+```bash
+drori-ppmi-build-infrastructure PPMI_ROOT IDASEARCH_DIR OUTPUT_ROOT \
+  --study-tables-root /path/to/Study
+```
+
+They can also be generated independently:
+
+```bash
+drori-ppmi-build-cohort-tables OUTPUT_ROOT /path/to/Study
+```
+
+Tables are written under `OUTPUT_ROOT/cohort_tables/`. Each output starts with
+`SubjectID` and `SessionID`, then appends the matched clinical row. For
+visit-sensitive study tables, the clinical visit closest to the MRI date is
+selected. Study table files may include a suffix before `.csv`; for example,
+`Other_Clinical_Features_12Mar2024.csv` can satisfy the
+`Other_Clinical_Features.csv` table definition. The search is recursive under
+`--study-tables-root`, so the source files do not need to be in the exact PPMI
+subdirectories expected by the built-in table definitions. Missing study tables
+are reported and skipped.
+
+Derived clinical metrics are written under `cohort_tables/calculated/`,
+including motor scores from UPDRS III, disease-duration estimates, and RBD
+score when the required source tables and columns are available.
+
 ## Pipeline Steps
 
 The full pipeline first builds the shared dataset infrastructure:
@@ -192,7 +226,9 @@ The full pipeline first builds the shared dataset infrastructure:
 3. Convert each PPMI DICOM image directory to NIfTI with `dcm2niix`.
 4. Build `PPMI_analysis/` with one subject/session folder per metadata row and
    standardized `T1.nii.gz`, `T2.nii.gz`, and `PD.nii.gz` links.
-5. Write `ppmi_config.json`, which stores the resolved paths used by later
+5. Optionally build cohort-specific clinical tables from downloaded PPMI study
+   tables when `--study-tables-root` is provided.
+6. Write `ppmi_config.json`, which stores the resolved paths used by later
    session-level commands.
 
 For each analysis session, the session pipeline then runs:
@@ -293,6 +329,7 @@ The infrastructure step writes outputs under `OUTPUT_ROOT`:
 OUTPUT_ROOT/
   ppmi_config.json
   ppmi_metadata.csv
+  cohort_tables/
   PPMI_nifti/
   PPMI_analysis/
   group_analysis/

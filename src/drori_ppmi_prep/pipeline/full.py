@@ -175,6 +175,13 @@ def main():
     parser.add_argument("--freesurfer-cmd", default="recon-all")
     parser.add_argument("--mri-vol2vol-cmd", default="mri_vol2vol")
     parser.add_argument("--file-pattern", default="*.csv")
+    parser.add_argument(
+        "--study-tables-root",
+        default=None,
+        help="Root directory containing downloaded PPMI study tables.",
+    )
+    parser.add_argument("--skip-cohort-tables", action="store_true")
+    parser.add_argument("--force-cohort-tables", action="store_true")
     parser.add_argument("--freesurfer-lut", default=None)
     parser.add_argument("--force-roi-stats", action="store_true")
 
@@ -231,6 +238,9 @@ def main():
             force=args.force,
             parallel=args.parallel,
             max_workers=args.max_workers,
+            study_tables_root=args.study_tables_root,
+            skip_cohort_tables=args.skip_cohort_tables,
+            force_cohort_tables=args.force_cohort_tables,
         )
 
     config = load_ppmi_config(output_root)
