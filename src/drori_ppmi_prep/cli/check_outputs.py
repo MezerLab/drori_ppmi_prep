@@ -94,7 +94,6 @@ def build_native_source_availability(metadata_csv, nifti_root):
         return {}
 
     df = pd.read_csv(metadata_csv)
-    irrelevant_scans_ordered = ["GRAPPA_ND", "GRAPPA 2", "GRAPPA2", "TSE_AC_PC line"]
     nifti_index = {}
 
     for path in nifti_root.glob("*/*/*/*.nii.gz"):
@@ -120,48 +119,6 @@ def build_native_source_availability(metadata_csv, nifti_root):
         except Exception:
             pass
         return value
-
-    def get_weighting_columns(weighting):
-        cols = []
-        if weighting in df.columns:
-            desc_col = f"{weighting}_Description" if f"{weighting}_Description" in df.columns else None
-            cols.append((weighting, desc_col))
-
-        index = 1
-        while f"{weighting}_{index}" in df.columns:
-            image_col = f"{weighting}_{index}"
-            desc_col = f"{weighting}_{index}_Description" if f"{weighting}_{index}_Description" in df.columns else None
-            cols.append((image_col, desc_col))
-            index += 1
-
-        return cols
-
-    def description_penalty(description):
-        description = description.upper()
-        for index, marker in enumerate(irrelevant_scans_ordered):
-            if marker.upper() in description:
-                return (1, index)
-        return (0, -1)
-
-    def choose_best_image(row, weighting):
-        candidates = []
-
-        for image_col, desc_col in get_weighting_columns(weighting):
-            image_id = normalize_numeric_id(row.get(image_col))
-            if image_id is None:
-                continue
-
-            description = ""
-            if desc_col is not None and desc_col in row.index and pd.notna(row[desc_col]):
-                description = str(row[desc_col])
-
-            candidates.append((description_penalty(description), image_id))
-
-        if not candidates:
-            return None
-
-        candidates.sort(key=lambda item: item[0])
-        return candidates[0][1]
 
     def find_nifti_for_image(subject_id, session_id, image_id):
         if image_id is None:
@@ -204,7 +161,7 @@ def build_native_source_availability(metadata_csv, nifti_root):
             weighting: find_nifti_for_image(
                 subject_id,
                 session_id,
-                choose_best_image(row, weighting),
+                normalize_numeric_id(row.get(weighting)),
             ) is not None
             for weighting in ["T1", "T2", "PD"]
         }
@@ -305,7 +262,7 @@ def build_checks(session_dir, native_sources=None):
         t1_reference_exists,
         (session_dir / "t1_space/segmentation/dbsegment/T1.nii.gz").exists(),
     )
-    checks["dbsegment_GP_SN"] = status(
+    checks["dbsegment_whole"] = status(
         (session_dir / "t1_space/segmentation/dbsegment/T1.nii.gz").exists(),
         (session_dir / "t1_space/segmentation/dbsegment/derivatives/GP_SN_seg.nii.gz").exists(),
     )
@@ -331,7 +288,10 @@ def build_checks(session_dir, native_sources=None):
         ).exists(),
     )
 
-    bias_source = session_dir / "t1_space/segmentation/synthseg/synthseg.nii.gz"
+    bias_source = (
+        session_dir
+        / "t1_space/segmentation/freesurfer/t1_space_outputs/aparc+aseg.nii.gz"
+    )
     bias_dir = session_dir / "t1_space/mri_unbias_deg2"
     bias_images = [
         image

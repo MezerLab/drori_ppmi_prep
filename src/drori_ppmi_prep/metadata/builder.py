@@ -5,6 +5,46 @@ import re
 import pandas as pd
 
 
+IRRELEVANT_SCAN_MARKERS = ("GRAPPA_ND", "GRAPPA 2", "GRAPPA2", "TSE_AC_PC line")
+WEIGHTINGS = ("T1", "T2", "PD")
+
+
+def is_missing_value(value: object) -> bool:
+    if pd.isna(value):
+        return True
+    value = str(value).strip()
+    return value == "" or value == "0" or value.lower() == "nan"
+
+
+def description_penalty(description: object) -> tuple[int, int]:
+    description = "" if pd.isna(description) else str(description)
+    description = description.upper()
+    for index, marker in enumerate(IRRELEVANT_SCAN_MARKERS):
+        if marker.upper() in description:
+            return (1, index)
+    return (0, -1)
+
+
+def choose_analysis_candidate(row: dict, weighting: str, candidate_count: int):
+    candidates = []
+    for index in range(1, candidate_count + 1):
+        image_col = f"{weighting}_{index}"
+        image_id = row.get(image_col)
+        if is_missing_value(image_id):
+            continue
+
+        desc_col = f"{image_col}_Description"
+        description = row.get(desc_col, "")
+        candidates.append((description_penalty(description), index, image_id, description))
+
+    if not candidates:
+        return 0, ""
+
+    candidates.sort(key=lambda item: (item[0], -item[1]))
+    _, _, image_id, description = candidates[0]
+    return image_id, description
+
+
 def build_ppmi_metadata_csv(
     input_dir: str | Path,
     output_csv: str | Path,
@@ -85,8 +125,6 @@ def build_ppmi_metadata_csv(
     ]
 
     base_col_map = dict(zip(source_base_columns, output_base_columns))
-    weightings = ["T1", "T2", "PD"]
-
     rows = []
 
     for _, group in data.groupby(group_keys, sort=True):
@@ -96,25 +134,27 @@ def build_ppmi_metadata_csv(
             non_null = group[src_col].dropna()
             row[out_col] = non_null.iloc[0] if not non_null.empty else pd.NA
 
-        for weighting in weightings:
+        for weighting in WEIGHTINGS:
             sub = (
                 group[group["Weighting"] == weighting]
                 .sort_values(by=["Study Date", "Image ID"], kind="stable")
                 .reset_index(drop=True)
             )
 
-            for i, (_, scan) in enumerate(sub.iterrows()):
+            for i, (_, scan) in enumerate(sub.iterrows(), start=1):
                 image_id = scan["Image ID"]
                 description = scan["Description"] if pd.notna(scan["Description"]) else ""
 
-                if i == 0:
-                    row[weighting] = image_id
-                    if weighting in {"T1", "T2"}:
-                        row[f"{weighting}_Description"] = description
-                else:
-                    row[f"{weighting}_{i}"] = image_id
-                    if weighting in {"T1", "T2"}:
-                        row[f"{weighting}_{i}_Description"] = description
+                row[f"{weighting}_{i}"] = image_id
+                row[f"{weighting}_{i}_Description"] = description
+
+            selected_image, selected_description = choose_analysis_candidate(
+                row,
+                weighting,
+                len(sub),
+            )
+            row[weighting] = selected_image
+            row[f"{weighting}_Description"] = selected_description
 
         rows.append(row)
 
@@ -129,17 +169,21 @@ def build_ppmi_metadata_csv(
     ordered_cols = list(output_base_columns)
 
     ordered_cols += ["T1", "T2", "PD"]
-    ordered_cols += ["T1_Description", "T2_Description"]
+    ordered_cols += ["T1_Description", "T2_Description", "PD_Description"]
 
     for i in range(1, max_extra_index + 1):
         ordered_cols += [f"T1_{i}", f"T2_{i}", f"PD_{i}"]
-        ordered_cols += [f"T1_{i}_Description", f"T2_{i}_Description"]
+        ordered_cols += [
+            f"T1_{i}_Description",
+            f"T2_{i}_Description",
+            f"PD_{i}_Description",
+        ]
 
     for col in ordered_cols:
         if col not in metadata_df.columns:
             if re.fullmatch(r"(T1|T2|PD)(?:_\d+)?", col):
                 metadata_df[col] = 0
-            elif re.fullmatch(r"(T1|T2)(?:_\d+)?_Description", col):
+            elif re.fullmatch(r"(T1|T2|PD)(?:_\d+)?_Description", col):
                 metadata_df[col] = ""
             else:
                 metadata_df[col] = pd.NA
@@ -152,7 +196,7 @@ def build_ppmi_metadata_csv(
     ]
     desc_cols = [
         c for c in metadata_df.columns
-        if re.fullmatch(r"(T1|T2)(?:_\d+)?_Description", c)
+        if re.fullmatch(r"(T1|T2|PD)(?:_\d+)?_Description", c)
     ]
 
     metadata_df[image_cols] = metadata_df[image_cols].fillna(0)

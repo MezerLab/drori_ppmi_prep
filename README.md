@@ -65,6 +65,15 @@ Build only the shared infrastructure:
 drori-ppmi-build-infrastructure PPMI_ROOT IDASEARCH_DIR OUTPUT_ROOT
 ```
 
+Expensive infrastructure stages can be skipped when their outputs already
+exist:
+
+```bash
+drori-ppmi-build-infrastructure PPMI_ROOT IDASEARCH_DIR OUTPUT_ROOT \
+  --skip-dicom-conversion \
+  --skip-analysis-build
+```
+
 Run preprocessing for one subject/session after infrastructure has been built:
 
 ```bash
@@ -92,6 +101,117 @@ drori-ppmi-run-roi-stats OUTPUT_ROOT
 
 Use `--help` on any command to see available options, including alternate tool
 paths, overwrite behavior, parallel execution, and segmentation skip flags.
+
+## General-Purpose CLIs
+
+Some commands expose reusable processing steps without assuming a PPMI dataset
+layout. These are useful for applying individual pipeline components to other
+projects.
+
+Run SynthStrip for one image:
+
+```bash
+drori-synthstrip \
+  --input T1.nii.gz \
+  --output T1_brainmask.nii.gz \
+  --mask T1_brainmask_mask.nii.gz
+```
+
+Run FSL FIRST for one image, with optional erosion:
+
+```bash
+drori-fslfirst \
+  --input T1_brainmask.nii.gz \
+  --output-dir segmentation/fslfirst \
+  --brain-extracted \
+  --erode
+```
+
+Run DBSegment for one image:
+
+```bash
+drori-dbsegment \
+  --input T1_brainmask.nii.gz \
+  --output-dir segmentation/dbsegment \
+  --cpu
+```
+
+The DBSegment command also creates the derived whole GP/SN segmentation under
+`segmentation/dbsegment/derivatives/GP_SN_seg.nii.gz`.
+
+Run FreeSurfer SynthSeg for one image:
+
+```bash
+drori-synthseg \
+  --input T1.nii.gz \
+  --output-dir segmentation/synthseg
+```
+
+Run FreeSurfer for one image and export outputs to a reference image space:
+
+```bash
+drori-freesurfer \
+  --input T1.nii.gz \
+  --subjects-dir group_analysis/FreeSurfer \
+  --subject-id sub-01_ses-01 \
+  --reference-image t1_space/T1.nii.gz \
+  --output-dir t1_space/segmentation/freesurfer/t1_space_outputs
+```
+
+Export an existing FreeSurfer subject without rerunning `recon-all`:
+
+```bash
+drori-freesurfer \
+  --subjects-dir group_analysis/FreeSurfer \
+  --subject-id sub-01_ses-01 \
+  --reference-image t1_space/T1.nii.gz \
+  --output-dir t1_space/segmentation/freesurfer/t1_space_outputs \
+  --export-only
+```
+
+Run MASSP atlas registration for one target image:
+
+```bash
+drori-massp \
+  --target-image T1_brainmask.nii.gz \
+  --output-dir segmentation/massp
+```
+
+By default, missing AHEAD/MASSP resources are downloaded into
+`segmentation/massp/atlases/massp2021/`, and outputs are written under:
+
+```text
+segmentation/massp/ahead2sub_ants/
+  ahead_med_qr1_2ref.nii.gz
+  massp2021-parcellation_decade-61to80_2ref.nii.gz
+  ahead2sub_0GenericAffine.mat
+  ahead2sub_1Warp.nii.gz
+  ahead2sub_1InverseWarp.nii.gz
+  README.txt
+```
+
+Use manually managed atlas/template files:
+
+```bash
+drori-massp \
+  --target-image T1_brainmask.nii.gz \
+  --output-dir segmentation/massp \
+  --template /path/to/ahead_med_qr1.nii.gz \
+  --atlas /path/to/massp2021-parcellation_decade-61to80.nii.gz \
+  --no-download
+```
+
+Run polynomial bias correction for one image:
+
+```bash
+drori-mri-unbias \
+  --image T1.nii.gz \
+  --mask wm_mask_eroded.nii.gz \
+  --brain-mask T1_brainmask_mask.nii.gz \
+  --corrected T1_unbiased.nii.gz \
+  --bias-field T1_bias.nii.gz \
+  --degree 2
+```
 
 Example full-pipeline command with common flags:
 
@@ -197,6 +317,16 @@ drori-ppmi-build-infrastructure PPMI_ROOT IDASEARCH_DIR OUTPUT_ROOT \
   --study-tables-root /path/to/Study
 ```
 
+To rebuild metadata, cohort tables, and `ppmi_config.json` without scanning the
+DICOM conversion or analysis-link stages:
+
+```bash
+drori-ppmi-build-infrastructure PPMI_ROOT IDASEARCH_DIR OUTPUT_ROOT \
+  --study-tables-root /path/to/Study \
+  --skip-dicom-conversion \
+  --skip-analysis-build
+```
+
 They can also be generated independently:
 
 ```bash
@@ -204,7 +334,7 @@ drori-ppmi-build-cohort-tables OUTPUT_ROOT /path/to/Study
 ```
 
 Tables are written under `OUTPUT_ROOT/cohort_tables/`. Each output starts with
-`SubjectID` and `SessionID`, then appends the matched clinical row. For
+`RowID`, `SubjectID`, and `SessionID`, then appends the matched clinical row. For
 visit-sensitive study tables, the clinical visit closest to the MRI date is
 selected. Study table files may include a suffix before `.csv`; for example,
 `Other_Clinical_Features_12Mar2024.csv` can satisfy the
@@ -217,11 +347,20 @@ Derived clinical metrics are written under `cohort_tables/calculated/`,
 including motor scores from UPDRS III, disease-duration estimates, and RBD
 score when the required source tables and columns are available.
 
+The cohort-table step also creates `ppmi_cohort_imaging_QA.csv` with columns
+`RowID`, `SubjectID`, `SessionID`, `image_QA`, `fslfirst_QA`, `massp_QA`,
+`abnormality_QA`, and `motion_QA`. QA columns are initialized as missing
+values so they can be filled manually after visual inspection.
+
 ## Pipeline Steps
 
 The full pipeline first builds the shared dataset infrastructure:
 
 1. Build `ppmi_metadata.csv` from the IDA search CSV files.
+   Raw candidate image IDs are retained as `T1_1`, `T1_2`, `T2_1`, etc.; the
+   unsuffixed `T1`, `T2`, and `PD` columns store the selected analysis images.
+   Non-preferred descriptions such as `GRAPPA_ND` are avoided when possible;
+   among equal-quality repeats, the later candidate is selected.
 2. Enrich the metadata table with selected DICOM header fields.
 3. Convert each PPMI DICOM image directory to NIfTI with `dcm2niix`.
 4. Build `PPMI_analysis/` with one subject/session folder per metadata row and
@@ -230,6 +369,10 @@ The full pipeline first builds the shared dataset infrastructure:
    tables when `--study-tables-root` is provided.
 6. Write `ppmi_config.json`, which stores the resolved paths used by later
    session-level commands.
+
+Use `--skip-dicom-enrichment`, `--skip-dicom-conversion`, or
+`--skip-analysis-build` to skip selected infrastructure stages. The full
+pipeline accepts the same flags and passes them to the infrastructure step.
 
 For each analysis session, the session pipeline then runs:
 
@@ -258,8 +401,8 @@ For each analysis session, the session pipeline then runs:
    `freesurfer/t1_space_outputs/`.
 9. Optionally run polynomial degree-2 bias correction on available
    `t1_space/T1.nii.gz`, `PD.nii.gz`, and `T2.nii.gz` images using the
-   eroded SynthSeg labels 2 and 41 as the white-matter mask and the SynthStrip
-   T1 brain mask as the brain mask when available.
+   eroded FreeSurfer labels 2 and 41 as the white-matter mask and the
+   SynthStrip T1 brain mask as the brain mask when available.
 
 After all session-level jobs finish, the full pipeline optionally writes
 ROI-statistics tables.
@@ -280,7 +423,7 @@ drori-ppmi-run-roi-stats OUTPUT_ROOT --overwrite --parallel --segmentation dbseg
 ```
 
 Valid segmentation names are `freesurfer`, `synthstrip`, `synthseg`,
-`fslfirst`, `fslfirst_eroded`, `dbsegment`, `dbsegment_GP_SN`, and `massp`.
+`fslfirst`, `fslfirst_eroded`, `dbsegment`, `dbsegment_whole`, and `massp`.
 Images and statistics can be filtered as well:
 
 ```bash
@@ -295,13 +438,15 @@ The command prints coarse progress every 50 completed sessions by default. Use
 Tables are written under `group_analysis/ROI_stats/t1_space/` for uncorrected
 T1-space images and under `group_analysis/ROI_stats/t1_space/mri_unbias_deg2/`
 for corrected images. Each CSV preserves the metadata session rows and starts
-with `SubjectID` and `SessionID`. Missing images, segmentations, ROIs, or
+with `RowID`, `SubjectID`, and `SessionID`. Missing images, segmentations, ROIs, or
 incompatible grids are represented as `NaN`.
 
 For each segmentation and each available `t1`, `t2`, and `pd` image, the
 command creates `median`, `mean`, `mad`, and `std` tables. Here `mad` is the
 median absolute deviation. It also creates one `volume` table per segmentation;
-volume values are in mm3. For example:
+volume values are in mm3. Volume tables under corrected-image folders are
+symlinks to the corresponding `t1_space` volume tables because volume does not
+depend on image intensity. For example:
 
 ```text
 group_analysis/ROI_stats/t1_space/
@@ -313,7 +458,7 @@ group_analysis/ROI_stats/t1_space/
 ```
 
 The command includes FreeSurfer `aparc.DKTatlas+aseg`, SynthStrip, SynthSeg,
-FSL FIRST, eroded FSL FIRST, DBSegment, the DBSegment GP/SN derivative, and
+FSL FIRST, eroded FSL FIRST, DBSegment, the DBSegment whole GP/SN derivative, and
 MASSP. ROI columns are named by ROI name, with hyphens converted to
 underscores. For FreeSurfer
 `aparc.DKTatlas+aseg`, names are read from

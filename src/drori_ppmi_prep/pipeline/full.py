@@ -182,6 +182,21 @@ def main():
     )
     parser.add_argument("--skip-cohort-tables", action="store_true")
     parser.add_argument("--force-cohort-tables", action="store_true")
+    parser.add_argument(
+        "--skip-dicom-enrichment",
+        action="store_true",
+        help="Skip enrichment of metadata from DICOM headers during infrastructure building.",
+    )
+    parser.add_argument(
+        "--skip-dicom-conversion",
+        action="store_true",
+        help="Skip DICOM-to-NIfTI conversion during infrastructure building.",
+    )
+    parser.add_argument(
+        "--skip-analysis-build",
+        action="store_true",
+        help="Skip creation/update of the analysis-session symlink tree.",
+    )
     parser.add_argument("--freesurfer-lut", default=None)
     parser.add_argument("--force-roi-stats", action="store_true")
 
@@ -241,6 +256,9 @@ def main():
             study_tables_root=args.study_tables_root,
             skip_cohort_tables=args.skip_cohort_tables,
             force_cohort_tables=args.force_cohort_tables,
+            skip_dicom_enrichment=args.skip_dicom_enrichment,
+            skip_dicom_conversion=args.skip_dicom_conversion,
+            skip_analysis_build=args.skip_analysis_build,
         )
 
     config = load_ppmi_config(output_root)

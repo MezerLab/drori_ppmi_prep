@@ -8,27 +8,33 @@ import numpy as np
 from drori_ppmi_prep.segmentation.utils import erode_label_segmentation
 
 
-SYNTHSEG_WM_LABELS = (2, 41)
+FREESURFER_WM_LABELS = (2, 41)
 README_TEXT = """Bias map is estimated in each image using a 2-degree 3D polynomial within white-matter mask.
-White-matter mask is defined as an eroded whole-WM ROI from SynthSeg.
+White-matter mask is defined as an eroded whole-WM ROI from FreeSurfer.
 Brain mask is defined from SynthStrip T1 when available.
 Raw image is divided by the estimated bias map.
 """
 
 
-def create_synthseg_wm_mask(synthseg_path: str | Path, output_mask_path: str | Path):
-    synthseg_path = Path(synthseg_path)
+def create_freesurfer_wm_mask(
+    freesurfer_segmentation_path: str | Path,
+    output_mask_path: str | Path,
+):
+    freesurfer_segmentation_path = Path(freesurfer_segmentation_path)
     output_mask_path = Path(output_mask_path)
 
-    if not synthseg_path.exists():
+    if not freesurfer_segmentation_path.exists():
         return None, "missing"
 
-    synthseg_img = nib.load(str(synthseg_path))
-    synthseg_data = synthseg_img.get_fdata()
-    mask = np.isin(np.rint(synthseg_data).astype(np.int32), SYNTHSEG_WM_LABELS).astype(np.uint8)
+    segmentation_img = nib.load(str(freesurfer_segmentation_path))
+    segmentation_data = segmentation_img.get_fdata()
+    mask = np.isin(
+        np.rint(segmentation_data).astype(np.int32),
+        FREESURFER_WM_LABELS,
+    ).astype(np.uint8)
 
     output_mask_path.parent.mkdir(parents=True, exist_ok=True)
-    mask_img = nib.Nifti1Image(mask, synthseg_img.affine, synthseg_img.header)
+    mask_img = nib.Nifti1Image(mask, segmentation_img.affine, segmentation_img.header)
     mask_img.set_data_dtype(np.uint8)
     nib.save(mask_img, str(output_mask_path))
 
@@ -43,11 +49,12 @@ def run_t1_space_bias_correction(
     session_dir = Path(session_dir)
     t1_space_dir = session_dir / "t1_space"
     output_dir = t1_space_dir / f"mri_unbias_deg{degree}"
-    synthseg_segmentation = (
+    freesurfer_segmentation = (
         t1_space_dir
         / "segmentation"
-        / "synthseg"
-        / "synthseg.nii.gz"
+        / "freesurfer"
+        / "t1_space_outputs"
+        / "aparc+aseg.nii.gz"
     )
     brain_mask = (
         t1_space_dir
@@ -59,7 +66,7 @@ def run_t1_space_bias_correction(
     eroded_wm_mask = output_dir / "wm_mask_eroded.nii.gz"
     readme_file = output_dir / "README.txt"
 
-    if not synthseg_segmentation.exists():
+    if not freesurfer_segmentation.exists():
         return None, "missing"
 
     brain_mask = brain_mask if brain_mask.exists() else None
@@ -97,7 +104,7 @@ def run_t1_space_bias_correction(
         ) from exc
 
     if overwrite or not wm_mask.exists():
-        _, mask_status = create_synthseg_wm_mask(synthseg_segmentation, wm_mask)
+        _, mask_status = create_freesurfer_wm_mask(freesurfer_segmentation, wm_mask)
         if mask_status != "done":
             return None, mask_status
 

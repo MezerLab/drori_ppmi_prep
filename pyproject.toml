@@ -35,6 +35,13 @@ drori-ppmi-check-outputs = "drori_ppmi_prep.cli.check_outputs:main"
 drori-ppmi-run-pipeline = "drori_ppmi_prep.cli.run_pipeline:main"
 drori-ppmi-run-mrgrad = "drori_ppmi_prep.cli.run_mrgrad:main"
 drori-ppmi-run-roi-stats = "drori_ppmi_prep.cli.run_roi_stats:main"
+drori-synthstrip = "drori_ppmi_prep.cli.general_synthstrip:main"
+drori-fslfirst = "drori_ppmi_prep.cli.general_fslfirst:main"
+drori-dbsegment = "drori_ppmi_prep.cli.general_dbsegment:main"
+drori-synthseg = "drori_ppmi_prep.cli.general_synthseg:main"
+drori-freesurfer = "drori_ppmi_prep.cli.general_freesurfer:main"
+drori-massp = "drori_ppmi_prep.cli.general_massp:main"
+drori-mri-unbias = "drori_ppmi_prep.cli.general_mri_unbias:main"
 
 [tool.setuptools]
 package-dir = {"" = "src"}

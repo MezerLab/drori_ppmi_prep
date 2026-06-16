@@ -1,6 +1,7 @@
 import argparse
 
 from drori_ppmi_prep.analysis.roi_stats import (
+    DEFAULT_AFFINE_COMPATIBILITY_ATOL,
     IMAGE_PATHS,
     ROI_STATS,
     SEGMENTATIONS,
@@ -43,6 +44,15 @@ def main():
         help="Do not print progress while processing sessions.",
     )
     parser.add_argument(
+        "--affine-tolerance",
+        type=float,
+        default=DEFAULT_AFFINE_COMPATIBILITY_ATOL,
+        help=(
+            "Absolute affine tolerance for accepting same-shape image/segmentation "
+            f"pairs. Default: {DEFAULT_AFFINE_COMPATIBILITY_ATOL}."
+        ),
+    )
+    parser.add_argument(
         "--image",
         choices=available_images(),
         action="append",
@@ -82,6 +92,7 @@ def main():
         selected_stats=args.stat,
         progress=not args.quiet,
         progress_interval=args.progress_interval,
+        affine_tolerance=args.affine_tolerance,
     )
     if status == "skipped":
         print(f"SKIPPED: already done: {output_dir}")

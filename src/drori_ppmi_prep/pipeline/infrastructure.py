@@ -54,6 +54,9 @@ def run_build_infrastructure(
     study_tables_root: str | None = None,
     skip_cohort_tables: bool = False,
     force_cohort_tables: bool = False,
+    skip_dicom_enrichment: bool = False,
+    skip_dicom_conversion: bool = False,
+    skip_analysis_build: bool = False,
 ):
     ppmi_root = Path(ppmi_root)
     idaSearch_dir = Path(idaSearch_dir)
@@ -82,32 +85,41 @@ def run_build_infrastructure(
         file_pattern=file_pattern,
     )
 
-    print("         Enriching metadata from DICOM headers...")
-    enrich_metadata_with_dicom_info(
-        metadata_csv=metadata_csv,
-        ppmi_root=ppmi_root,
-        output_csv=metadata_csv,
-        parallel=parallel,
-        max_workers=max_workers,
-    )
+    if skip_dicom_enrichment:
+        print("         SKIPPED DICOM enrichment: disabled by --skip-dicom-enrichment")
+    else:
+        print("         Enriching metadata from DICOM headers...")
+        enrich_metadata_with_dicom_info(
+            metadata_csv=metadata_csv,
+            ppmi_root=ppmi_root,
+            output_csv=metadata_csv,
+            parallel=parallel,
+            max_workers=max_workers,
+        )
 
     print(f"  (2/{total_steps}): Converting DICOMs to NIfTI...")
-    convert_ppmi_dicoms_to_nifti(
-        input_root=ppmi_root,
-        output_root=nifti_root,
-        dcm2niix_path=dcm2niix_cmd,
-        overwrite=force,
-        parallel=parallel,
-        max_workers=max_workers,
-    )
+    if skip_dicom_conversion:
+        print("         SKIPPED: disabled by --skip-dicom-conversion")
+    else:
+        convert_ppmi_dicoms_to_nifti(
+            input_root=ppmi_root,
+            output_root=nifti_root,
+            dcm2niix_path=dcm2niix_cmd,
+            overwrite=force,
+            parallel=parallel,
+            max_workers=max_workers,
+        )
 
     print(f"  (3/{total_steps}): Building analysis dataset...")
-    build_analysis_dataset_from_metadata(
-        metadata_csv=metadata_csv,
-        nifti_root=nifti_root,
-        output_root=analysis_root,
-        overwrite=force,
-    )
+    if skip_analysis_build:
+        print("         SKIPPED: disabled by --skip-analysis-build")
+    else:
+        build_analysis_dataset_from_metadata(
+            metadata_csv=metadata_csv,
+            nifti_root=nifti_root,
+            output_root=analysis_root,
+            overwrite=force,
+        )
 
     print(f"  (4/{total_steps}): Building cohort clinical tables...")
     if skip_cohort_tables:
@@ -124,6 +136,8 @@ def run_build_infrastructure(
         print(f"         Tables written/found: {len(result['tables'])}")
         for name, reason in result["skipped"].items():
             print(f"         SKIPPED {name}: {reason}")
+        qa_path, qa_status = result["imaging_qa"]
+        print(f"         IMAGING_QA {qa_status}: {qa_path}")
         for name, (_, status) in result["metrics"].items():
             print(f"         METRIC {name}: {status}")
 
@@ -165,6 +179,21 @@ def main():
     )
     parser.add_argument("--skip-cohort-tables", action="store_true")
     parser.add_argument("--force-cohort-tables", action="store_true")
+    parser.add_argument(
+        "--skip-dicom-enrichment",
+        action="store_true",
+        help="Skip enrichment of metadata from DICOM headers.",
+    )
+    parser.add_argument(
+        "--skip-dicom-conversion",
+        action="store_true",
+        help="Skip DICOM-to-NIfTI conversion.",
+    )
+    parser.add_argument(
+        "--skip-analysis-build",
+        action="store_true",
+        help="Skip creation/update of the analysis-session symlink tree.",
+    )
     parser.add_argument("--force", action="store_true")
     parser.add_argument(
         "--parallel",
@@ -192,6 +221,9 @@ def main():
         study_tables_root=args.study_tables_root,
         skip_cohort_tables=args.skip_cohort_tables,
         force_cohort_tables=args.force_cohort_tables,
+        skip_dicom_enrichment=args.skip_dicom_enrichment,
+        skip_dicom_conversion=args.skip_dicom_conversion,
+        skip_analysis_build=args.skip_analysis_build,
     )
 
 

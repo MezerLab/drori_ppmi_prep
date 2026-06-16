@@ -62,6 +62,8 @@ def main():
         print(f"  TABLE {name}: {path}")
     for name, reason in result["skipped"].items():
         print(f"  SKIPPED {name}: {reason}")
+    qa_path, qa_status = result["imaging_qa"]
+    print(f"  IMAGING_QA: {qa_status}: {qa_path}")
     for name, (path, status) in result["metrics"].items():
         print(f"  METRIC {name}: {status}: {path}")
 

@@ -82,9 +82,38 @@ CLINICAL_TABLES_BY_NAME = {
 }
 
 BASE_COLUMNS = (
+    "RowID",
     "SubjectID",
     "SessionID",
 )
+
+IMAGING_QA_COLUMNS = (
+    "image_QA",
+    "fslfirst_QA",
+    "massp_QA",
+    "abnormality_QA",
+    "motion_QA",
+)
+
+
+def is_empty_qa_value(value):
+    if pd.isna(value):
+        return True
+    value = str(value).strip()
+    return value == "" or value.lower() == "nan"
+
+
+def existing_imaging_qa_is_empty(path):
+    path = Path(path)
+    if not path.exists():
+        return True
+
+    table = pd.read_csv(path, dtype=str, low_memory=False, keep_default_na=True)
+    value_columns = [column for column in table.columns if column not in BASE_COLUMNS]
+    if not value_columns:
+        return True
+
+    return table.loc[:, value_columns].apply(lambda col: col.map(is_empty_qa_value)).all().all()
 
 
 def normalize_subject_id(value):
@@ -292,6 +321,29 @@ def write_cohort_tables(
     return outputs, skipped
 
 
+def write_imaging_qa_table(metadata_csv, output_dir, overwrite=False):
+    output_path = Path(output_dir) / "ppmi_cohort_imaging_QA.csv"
+    if output_path.exists():
+        if not existing_imaging_qa_is_empty(output_path):
+            return output_path, "skipped_existing_values"
+        if not overwrite:
+            return output_path, "skipped"
+
+    metadata = pd.read_csv(
+        metadata_csv,
+        dtype={"RowID": str, "SubjectID": str, "SessionID": str},
+        low_memory=False,
+        keep_default_na=True,
+    )
+    table = cohort_table_base(metadata)
+    for column in IMAGING_QA_COLUMNS:
+        table[column] = pd.NA
+
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    table.to_csv(output_path, index=False)
+    return output_path, "done"
+
+
 def _read_cohort_table(path):
     path = Path(path)
     if not path.exists():
@@ -353,7 +405,25 @@ def calculate_motor_metrics(cohort_tables_dir, output_dir, overwrite=False):
     return output_path, "done"
 
 
-def calculate_disease_duration_metrics(cohort_tables_dir, output_dir, overwrite=False):
+def _metadata_study_dates(metadata_csv):
+    if metadata_csv is None:
+        return None
+    metadata_csv = Path(metadata_csv)
+    if not metadata_csv.exists():
+        return None
+    metadata = pd.read_csv(
+        metadata_csv,
+        dtype={"RowID": str, "SubjectID": str, "SessionID": str},
+        low_memory=False,
+        keep_default_na=True,
+    )
+    required = {"RowID", "StudyDate"}
+    if not required <= set(metadata.columns):
+        return None
+    return metadata[["RowID", "StudyDate"]].copy()
+
+
+def calculate_disease_duration_metrics(cohort_tables_dir, output_dir, overwrite=False, metadata_csv=None):
     input_path = Path(cohort_tables_dir) / "ppmi_cohort_pd_diagnosis.csv"
     output_path = Path(output_dir) / "ppmi_cohort_calc_disease_duration.csv"
     if output_path.exists() and not overwrite:
@@ -368,12 +438,28 @@ def calculate_disease_duration_metrics(cohort_tables_dir, output_dir, overwrite=
     if missing:
         return output_path, f"missing columns: {', '.join(missing)}"
 
+    study_dates = _metadata_study_dates(metadata_csv)
+    if study_dates is None:
+        return output_path, "missing metadata StudyDate"
+
     output = table.loc[:, _base_columns(table)].copy()
     symptoms_onset = pd.to_datetime(table["SXDT"], format="%m/%Y", errors="coerce")
     diagnosis_date = pd.to_datetime(table["PDDXDT"], format="%m/%Y", errors="coerce")
+    merged = table[["RowID"]].astype({"RowID": str}).merge(
+        study_dates.astype({"RowID": str}),
+        how="left",
+        on="RowID",
+        sort=False,
+    )
+    imaging_date = pd.to_datetime(merged["StudyDate"], errors="coerce")
+    imaging_date = imaging_date.apply(
+        lambda value: value.replace(day=1) if pd.notna(value) else pd.NaT
+    )
 
     output["SymptomsOnset"] = symptoms_onset
     output["DiagnosisDate"] = diagnosis_date
+    output["SymptomsDuration_days"] = (imaging_date - symptoms_onset).dt.days
+    output["DiagnosisDuration_days"] = (imaging_date - diagnosis_date).dt.days
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output.to_csv(output_path, index=False)
@@ -410,7 +496,7 @@ def calculate_rbd_score_metrics(cohort_tables_dir, output_dir, overwrite=False):
     return output_path, "done"
 
 
-def calculate_cohort_metrics(cohort_tables_dir, output_dir=None, overwrite=False):
+def calculate_cohort_metrics(cohort_tables_dir, output_dir=None, overwrite=False, metadata_csv=None):
     cohort_tables_dir = Path(cohort_tables_dir)
     output_dir = Path(output_dir) if output_dir is not None else cohort_tables_dir / "calculated"
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -422,7 +508,8 @@ def calculate_cohort_metrics(cohort_tables_dir, output_dir=None, overwrite=False
     }
     results = {}
     for name, calculator in calculators.items():
-        results[name] = calculator(cohort_tables_dir, output_dir, overwrite=overwrite)
+        kwargs = {"metadata_csv": metadata_csv} if name == "disease_duration" else {}
+        results[name] = calculator(cohort_tables_dir, output_dir, overwrite=overwrite, **kwargs)
     return results
 
 
@@ -441,14 +528,21 @@ def build_cohort_clinical_tables(
         table_names=table_names,
         overwrite=overwrite,
     )
+    qa_path, qa_status = write_imaging_qa_table(
+        metadata_csv=metadata_csv,
+        output_dir=output_dir,
+        overwrite=overwrite,
+    )
     metric_results = {}
     if calculate_metrics:
         metric_results = calculate_cohort_metrics(
             output_dir,
             overwrite=overwrite,
+            metadata_csv=metadata_csv,
         )
     return {
         "tables": outputs,
         "skipped": skipped,
+        "imaging_qa": (qa_path, qa_status),
         "metrics": metric_results,
     }

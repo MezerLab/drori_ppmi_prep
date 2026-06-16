@@ -1,5 +1,11 @@
 [console_scripts]
+drori-dbsegment = drori_ppmi_prep.cli.general_dbsegment:main
+drori-fslfirst = drori_ppmi_prep.cli.general_fslfirst:main
+drori-freesurfer = drori_ppmi_prep.cli.general_freesurfer:main
+drori-massp = drori_ppmi_prep.cli.general_massp:main
+drori-mri-unbias = drori_ppmi_prep.cli.general_mri_unbias:main
 drori-ppmi-build-analysis = drori_ppmi_prep.cli.build_analysis:main
+drori-ppmi-build-cohort-tables = drori_ppmi_prep.cli.build_cohort_tables:main
 drori-ppmi-build-infrastructure = drori_ppmi_prep.cli.build_infrastructure:main
 drori-ppmi-build-metadata = drori_ppmi_prep.cli.build_metadata:main
 drori-ppmi-check-outputs = drori_ppmi_prep.cli.check_outputs:main
@@ -15,3 +21,5 @@ drori-ppmi-run-pipeline = drori_ppmi_prep.cli.run_pipeline:main
 drori-ppmi-run-roi-stats = drori_ppmi_prep.cli.run_roi_stats:main
 drori-ppmi-run-session = drori_ppmi_prep.cli.run_session:main
 drori-ppmi-run-synthseg = drori_ppmi_prep.cli.run_synthseg:main
+drori-synthseg = drori_ppmi_prep.cli.general_synthseg:main
+drori-synthstrip = drori_ppmi_prep.cli.general_synthstrip:main

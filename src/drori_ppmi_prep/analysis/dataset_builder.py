@@ -33,9 +33,9 @@ def build_analysis_dataset_from_metadata(
         or
         nifti_root/SUBJECT_ID/SEQUENCE_NAME/SESSION_ID/IMAGE_ID.nii.gz
 
-    If multiple scans of the same weighting exist in one row, the function chooses
-    the most relevant one based on the corresponding description columns, avoiding
-    scans that contain certain irrelevant markers when better alternatives exist.
+    The unsuffixed T1/T2/PD columns are expected to contain the selected
+    analysis image IDs. Raw candidates can be retained in T1_1/T1_2/etc. by the
+    metadata builder, but selection is not repeated here.
 
     Parameters
     ----------
@@ -69,8 +69,6 @@ def build_analysis_dataset_from_metadata(
     if missing:
         raise ValueError(f"Metadata CSV is missing required columns: {missing}")
 
-    irrelevant_scans_ordered = ['GRAPPA_ND', 'GRAPPA 2', 'GRAPPA2', 'TSE_AC_PC line']
-
     def is_missing_value(value: object) -> bool:
         if pd.isna(value):
             return True
@@ -88,65 +86,6 @@ def build_analysis_dataset_from_metadata(
         except Exception:
             pass
         return s
-
-    def get_weighting_columns(weighting: str) -> list[tuple[str, str | None]]:
-        """
-        Returns pairs of (image_col, desc_col) in order:
-            T1, T1_Description
-            T1_1, T1_1_Description
-            T1_2, T1_2_Description
-            ...
-        """
-        cols: list[tuple[str, str | None]] = []
-        if weighting in df.columns:
-            desc_col = f"{weighting}_Description" if f"{weighting}_Description" in df.columns else None
-            cols.append((weighting, desc_col))
-
-        i = 1
-        while f"{weighting}_{i}" in df.columns:
-            image_col = f"{weighting}_{i}"
-            desc_col = f"{weighting}_{i}_Description" if f"{weighting}_{i}_Description" in df.columns else None
-            cols.append((image_col, desc_col))
-            i += 1
-
-        return cols
-
-    def description_penalty(description: str) -> tuple[int, int]:
-        """
-        Lower is better.
-        First component: whether any irrelevant marker appears.
-        Second component: position in irrelevant_scans_ordered (later is less bad).
-        """
-        desc_upper = description.upper()
-        for idx, marker in enumerate(irrelevant_scans_ordered):
-            if marker.upper() in desc_upper:
-                return (1, idx)
-        return (0, -1)
-
-    def choose_best_image(row: pd.Series, weighting: str) -> tuple[str | None, str]:
-        candidates: list[tuple[tuple[int, int], str, str]] = []
-
-        for image_col, desc_col in get_weighting_columns(weighting):
-            image_id = normalize_numeric_id(row.get(image_col))
-            if image_id is None:
-                continue
-
-            description = ""
-            if desc_col is not None and desc_col in row.index and pd.notna(row[desc_col]):
-                description = str(row[desc_col])
-
-            penalty = description_penalty(description)
-            candidates.append((penalty, image_id, description))
-
-        if not candidates:
-            return None, ""
-
-        # Prefer scans with no irrelevant markers.
-        # Among flagged scans, prefer the one whose marker is less redundant
-        # according to irrelevant_scans_ordered.
-        candidates.sort(key=lambda x: x[0])
-        _, image_id, description = candidates[0]
-        return image_id, description
 
     def find_nifti_for_image(subject_id: object, session_id: object, image_id: str | None) -> Path | None:
         if image_id is None:
@@ -219,7 +158,11 @@ def build_analysis_dataset_from_metadata(
         selected = {}
 
         for weighting in ["T1", "T2", "PD"]:
-            image_id, description = choose_best_image(row, weighting)
+            image_id = normalize_numeric_id(row.get(weighting))
+            description = ""
+            desc_col = f"{weighting}_Description"
+            if desc_col in row.index and pd.notna(row[desc_col]):
+                description = str(row[desc_col])
             nifti_path = find_nifti_for_image(subject_id, session_id, image_id)
 
             selected[weighting] = image_id if image_id is not None else ""

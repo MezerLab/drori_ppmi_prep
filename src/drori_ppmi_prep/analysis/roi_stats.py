@@ -24,6 +24,7 @@ IMAGE_PATHS = {
 }
 INTENSITY_STATS = ("median", "mean", "mad", "std")
 ROI_STATS = INTENSITY_STATS + ("volume",)
+DEFAULT_AFFINE_COMPATIBILITY_ATOL = 1e-2
 
 ASEG_LABELS = {
     2: "Left-Cerebral-White-Matter",
@@ -158,7 +159,7 @@ DBSEGMENT_LABELS = {
     30: "VIM-L",
     31: "VIM-R",
 }
-DBSEGMENT_GP_SN_LABELS = {
+DBSEGMENT_WHOLE_LABELS = {
     4: "GP-L",
     5: "GP-R",
     18: "SN-L",
@@ -231,9 +232,9 @@ SEGMENTATIONS = {
         "path": "t1_space/segmentation/dbsegment/T1.nii.gz",
         "labels": DBSEGMENT_LABELS,
     },
-    "dbsegment_GP_SN": {
+    "dbsegment_whole": {
         "path": "t1_space/segmentation/dbsegment/derivatives/GP_SN_seg.nii.gz",
-        "labels": DBSEGMENT_GP_SN_LABELS,
+        "labels": DBSEGMENT_WHOLE_LABELS,
     },
     "massp": {
         "path": (
@@ -325,6 +326,7 @@ def _session_stats(job):
         image_paths,
         intensity_stats,
         include_volume,
+        affine_tolerance,
     ) = job
     session_dir = Path(analysis_root) / subject_id / session_id
     result = {"row_index": row_index, "stats": {}}
@@ -356,7 +358,14 @@ def _session_stats(job):
                     if (
                         image_data is None
                         or image_data.shape != segmentation_data.shape
-                        or not np.allclose(image.affine, segmentation_image.affine)
+                        # Some legacy outputs share voxel arrays but differ by a
+                        # small header scaling term. Keep the shape requirement
+                        # strict, and tolerate only bounded affine differences.
+                        or not np.allclose(
+                            image.affine,
+                            segmentation_image.affine,
+                            atol=affine_tolerance,
+                        )
                     ):
                         continue
                     compatible_images[image_set][image_name] = image_data
@@ -380,11 +389,14 @@ def _session_stats(job):
 
 
 def _metadata_rows(metadata_csv):
-    metadata = pd.read_csv(metadata_csv, dtype={"SubjectID": str, "SessionID": str})
-    required = {"SubjectID", "SessionID"}
+    metadata = pd.read_csv(
+        metadata_csv,
+        dtype={"RowID": str, "SubjectID": str, "SessionID": str},
+    )
+    required = {"RowID", "SubjectID", "SessionID"}
     if not required <= set(metadata.columns):
-        raise ValueError("Metadata CSV must contain SubjectID and SessionID columns.")
-    return metadata[["SubjectID", "SessionID"]].copy()
+        raise ValueError("Metadata CSV must contain RowID, SubjectID, and SessionID columns.")
+    return metadata[["RowID", "SubjectID", "SessionID"]].copy()
 
 
 def _normalize_subject_id(value):
@@ -451,13 +463,7 @@ def _output_files(output_root, segmentations, image_paths, intensity_stats, incl
     files = []
     for segmentation_name in segmentations:
         if include_volume:
-            files.append(
-                output_root
-                / "group_analysis"
-                / "ROI_stats"
-                / "t1_space"
-                / f"{segmentation_name}_volume.csv"
-            )
+            files.extend(_volume_output_paths(output_root, image_paths, segmentation_name))
         for image_set in image_paths:
             output_dir = output_root / "group_analysis" / "ROI_stats" / "t1_space"
             if image_set != "t1_space":
@@ -466,6 +472,27 @@ def _output_files(output_root, segmentations, image_paths, intensity_stats, incl
                 for stat in intensity_stats:
                     files.append(output_dir / f"{segmentation_name}_{image_name}_{stat}.csv")
     return files
+
+
+def _volume_output_paths(output_root, image_paths, segmentation_name):
+    output_root = Path(output_root)
+    output_dir = output_root / "group_analysis" / "ROI_stats" / "t1_space"
+    paths = [output_dir / f"{segmentation_name}_volume.csv"]
+    paths.extend(
+        output_dir / image_set / f"{segmentation_name}_volume.csv"
+        for image_set in image_paths
+        if image_set != "t1_space"
+    )
+    return paths
+
+
+def _link_volume_table(source_path, link_path):
+    source_path = Path(source_path)
+    link_path = Path(link_path)
+    link_path.parent.mkdir(parents=True, exist_ok=True)
+    if link_path.exists() or link_path.is_symlink():
+        link_path.unlink()
+    link_path.symlink_to(Path("..") / source_path.name)
 
 
 def _roi_column_name(label_name):
@@ -489,6 +516,7 @@ def run_roi_stats(
     selected_stats=None,
     progress=True,
     progress_interval=50,
+    affine_tolerance=DEFAULT_AFFINE_COMPATIBILITY_ATOL,
 ):
     output_root = Path(output_root)
     analysis_root, metadata_csv = resolve_dataset_paths(output_root)
@@ -537,6 +565,7 @@ def run_roi_stats(
             image_paths,
             intensity_stats,
             include_volume,
+            affine_tolerance,
         )
         for row_index, row in metadata.iterrows()
     ]
@@ -600,12 +629,19 @@ def run_roi_stats(
         labels = config["labels"]
         output_dir = output_root / "group_analysis" / "ROI_stats" / "t1_space"
         if include_volume:
+            volume_path = output_dir / f"{segmentation_name}_volume.csv"
             write_table(
-                output_dir / f"{segmentation_name}_volume.csv",
+                volume_path,
                 segmentation_name,
                 labels,
                 lambda result, label: result.get("volume", {}).get(label, np.nan),
             )
+            for image_set in image_paths:
+                if image_set != "t1_space":
+                    _link_volume_table(
+                        volume_path,
+                        output_dir / image_set / f"{segmentation_name}_volume.csv",
+                    )
         for image_set in image_paths:
             image_output_dir = output_dir if image_set == "t1_space" else output_dir / image_set
             for image_name in image_paths[image_set]:
