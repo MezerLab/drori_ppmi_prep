@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import shlex
 import shutil
 import subprocess
 
@@ -30,14 +31,25 @@ def run_synthseg(
         synthseg_cmd,
         "--i", str(input_image),
         "--o", str(output_file),
+        "--cpu",
     ]
 
-    result = subprocess.run(
-        cmd,
-        text=True,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-    )
+    command_log = output_dir / "synthseg_command.txt"
+    stdout_log = output_dir / "synthseg_stdout.log"
+    stderr_log = output_dir / "synthseg_stderr.log"
+    command_log.write_text(shlex.join(cmd) + "\n")
+
+    with stdout_log.open("w") as stdout_f, stderr_log.open("w") as stderr_f:
+        try:
+            result = subprocess.run(
+                cmd,
+                text=True,
+                stdout=stdout_f,
+                stderr=stderr_f,
+            )
+        except Exception as exc:
+            stderr_f.write(f"{type(exc).__name__}: {exc}\n")
+            return None, "failed"
 
     if result.returncode != 0:
         return None, "failed"

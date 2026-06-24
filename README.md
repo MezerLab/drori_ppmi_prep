@@ -230,6 +230,8 @@ drori-synthseg \
   --output-dir segmentation/synthseg
 ```
 
+SynthSeg runs with FreeSurfer's `--cpu` option to avoid incompatible CUDA/DNN environments.
+
 Run FreeSurfer for one image and export outputs to a reference image space:
 
 ```bash

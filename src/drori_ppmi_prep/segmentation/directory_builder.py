@@ -7,6 +7,9 @@ import shutil
 def link_t1_synthstrip_files_to_t1_space(session_dir):
     session_dir = Path(session_dir)
 
+    if not (session_dir / "T1.nii.gz").exists():
+        return
+
     src_dir = session_dir / "segmentation_native" / "synthstrip"
     segmentation_dir = session_dir / "t1_space" / "segmentation"
     dst_dir = segmentation_dir / "synthstrip"
