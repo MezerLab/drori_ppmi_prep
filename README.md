@@ -7,14 +7,14 @@ analysis directory, and runs session-level preprocessing and segmentation.
 ## Citation
 
 This pipeline was developed by Elior Drori at the Mezer Lab, Hebrew University
-of Jerusalem, as part of Drori et al. (2025).
+of Jerusalem, as part of Drori et al. (2026).
 
 If you use this pipeline in your work, please cite:
 
 ```text
 Drori E, Kurer N, Mezer AA.
 Sensorimotor basal ganglia circuit asymmetry explains lateralized motor dysfunction in early Parkinson’s disease.
-bioRxiv. 2025. https://doi.org/10.64898/2026.03.16.711841
+bioRxiv. 2026. https://doi.org/10.64898/2026.03.16.711841
 ```
 
 ## Installation
