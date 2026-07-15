@@ -6,6 +6,7 @@ import shutil
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
+from urllib.parse import urlencode
 from urllib.error import URLError
 from urllib.request import urlopen
 
@@ -134,15 +135,24 @@ def _download_file(url: str, output_path: Path):
 
 
 def _figshare_file_download_url(article_id: str, filename: str):
-    try:
-        with urlopen(f"https://api.figshare.com/v2/articles/{article_id}/files") as response:
-            files = json.loads(response.read().decode("utf-8"))
-    except URLError:
-        return None
+    page = 1
+    page_size = 100
+    while True:
+        query = urlencode({"page": page, "page_size": page_size})
+        url = f"https://api.figshare.com/v2/articles/{article_id}/files?{query}"
+        try:
+            with urlopen(url) as response:
+                files = json.loads(response.read().decode("utf-8"))
+        except URLError:
+            return None
 
-    for file_info in files:
-        if file_info.get("name") == filename:
-            return file_info.get("download_url")
+        for file_info in files:
+            if file_info.get("name") == filename:
+                return file_info.get("download_url")
+
+        if len(files) < page_size:
+            break
+        page += 1
 
     return None
 
